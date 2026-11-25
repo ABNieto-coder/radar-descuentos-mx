@@ -11,8 +11,6 @@ MATT_TOOL = "29165755"
 
 ARCHIVO_HISTORIAL = "publicados.txt"
 MAX_POSTS_POR_CORRIDA = 2
-
-# Feed RSS general de ofertas en México
 RSS_URL = "https://www.promodescuentos.com/rss"
 
 def cargar_publicados():
@@ -33,52 +31,49 @@ def convertir_a_afiliado(url_producto):
     nuevo_query = urlencode(params, doseq=True)
     return urlunparse((partes.scheme, partes.netloc, partes.path, partes.params, nuevo_query, ""))
 
-def resolver_url_final(url):
-    try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/124.0.0.0 Mobile Safari/537.36"
-        }
-        r = requests.get(url, headers=headers, allow_redirects=True, timeout=12)
-        return r.url
-    except Exception:
-        return ""
+def extraer_url_ml_de_texto(texto):
+    urls = re.findall(r'https?://[^\s"\'<>]+', texto or "")
+    for u in urls:
+        limpia = u.rstrip(").,;")
+        if "mercadolibre.com.mx" in limpia.lower() or "meli.la" in limpia.lower():
+            return limpia.split("?")[0]
+    return ""
 
 def buscar_ofertas_ml():
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
-    }
-    resp = requests.get(RSS_URL, headers=headers, timeout=15)
-    resp.raise_for_status()
-
-    root = ET.fromstring(resp.content)
     ofertas = []
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
+        }
+        resp = requests.get(RSS_URL, headers=headers, timeout=15)
+        resp.raise_for_status()
+        root = ET.fromstring(resp.content)
 
-    for item in root.findall("./channel/item"):
-        titulo = (item.findtext("title") or "").strip()
-        link_rss = (item.findtext("link") or "").strip()
-        guid = (item.findtext("guid") or link_rss).strip()
-        descripcion = item.findtext("description") or ""
+        for item in root.findall("./channel/item"):
+            titulo = (item.findtext("title") or "").strip()
+            link_rss = (item.findtext("link") or "").strip()
+            guid = (item.findtext("guid") or link_rss).strip()
+            descripcion = item.findtext("description") or ""
 
-        texto_completo = f"{titulo} {descripcion}".lower()
-        if "mercado libre" not in texto_completo and "mercadolibre" not in texto_completo:
-            continue
+            texto_completo = f"{titulo} {descripcion}"
+            if "mercado libre" not in texto_completo.lower() and "mercadolibre" not in texto_completo.lower():
+                continue
 
-        url_final = resolver_url_final(link_rss)
-        if "mercadolibre" not in url_final.lower() and "meli.la" not in url_final.lower():
-            continue
+            url_ml = extraer_url_ml_de_texto(f"{link_rss} {descripcion}")
+            if not url_ml:
+                url_ml = "https://www.mercadolibre.com.mx/ofertas"
 
-        url_limpia = url_final.split("?")[0]
-        url_afiliado = convertir_a_afiliado(url_limpia)
+            img_match = re.search(r'src=["\'](https?://[^"\']+)["\']', descripcion)
+            imagen = img_match.group(1) if img_match else ""
 
-        img_match = re.search(r'src=["\'](https?://[^"\']+)["\']', descripcion)
-        imagen = img_match.group(1) if img_match else ""
-
-        ofertas.append({
-            "id": guid,
-            "titulo": titulo,
-            "url": url_afiliado,
-            "imagen": imagen
-        })
+            ofertas.append({
+                "id": guid,
+                "titulo": titulo,
+                "url": convertir_a_afiliado(url_ml),
+                "imagen": imagen
+            })
+    except Exception as e:
+        print(f"Aviso RSS: {e}")
 
     return ofertas
 
