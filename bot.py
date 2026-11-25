@@ -1,5 +1,6 @@
 import os
-import random
+import re
+import xml.etree.ElementTree as ET
 import requests
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 
@@ -9,11 +10,10 @@ MATT_WORD = "charlysource"
 MATT_TOOL = "29165755"
 
 ARCHIVO_HISTORIAL = "publicados.txt"
-DESCUENTO_MINIMO = 20  # Porcentaje mínimo de descuento real
 MAX_POSTS_POR_CORRIDA = 2
 
-# Categorías populares en Mercado Libre MX (Celulares, Computación, Electrónica, Hogar)
-CATEGORIAS = ["MLM1051", "MLM1648", "MLM1000", "MLM1574"]
+# Feed RSS público de ofertas en México
+RSS_URL = "https://www.promodescuentos.com/rss/new"
 
 def cargar_publicados():
     if not os.path.exists(ARCHIVO_HISTORIAL):
@@ -33,42 +33,73 @@ def convertir_a_afiliado(url_producto):
     nuevo_query = urlencode(params, doseq=True)
     return urlunparse((partes.scheme, partes.netloc, partes.path, partes.params, nuevo_query, ""))
 
-def buscar_ofertas():
-    categoria = random.choice(CATEGORIAS)
-    url = f"https://api.mercadolibre.com/sites/MLM/search?category={categoria}&limit=50"
-    headers = {"User-Agent": "Mozilla/5.0"}
-    resp = requests.get(url, headers=headers, timeout=15)
+def resolver_url_final(url):
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/124.0.0.0 Mobile Safari/537.36"
+        }
+        r = requests.get(url, headers=headers, allow_redirects=True, timeout=12)
+        return r.url
+    except Exception:
+        return ""
+
+def buscar_ofertas_ml():
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
+    }
+    resp = requests.get(RSS_URL, headers=headers, timeout=15)
     resp.raise_for_status()
-    return resp.json().get("results", [])
 
-def publicar_en_telegram(item, descuento):
-    titulo = item["title"]
-    precio = item["price"]
-    precio_original = item["original_price"]
-    url_afiliado = convertir_a_afiliado(item["permalink"])
-    # Mejora la calidad de la miniatura de Mercado Libre
-    imagen = item.get("thumbnail", "").replace("-I.jpg", "-O.jpg")
+    root = ET.fromstring(resp.content)
+    ofertas = []
 
+    for item in root.findall("./channel/item"):
+        titulo = (item.findtext("title") or "").strip()
+        link_rss = (item.findtext("link") or "").strip()
+        guid = (item.findtext("guid") or link_rss).strip()
+        descripcion = item.findtext("description") or ""
+
+        texto_completo = f"{titulo} {descripcion}".lower()
+        if "mercado libre" not in texto_completo and "mercadolibre" not in texto_completo:
+            continue
+
+        url_final = resolver_url_final(link_rss)
+        if "mercadolibre.com.mx" not in url_final:
+            continue
+
+        url_limpia = url_final.split("?")[0]
+        url_afiliado = convertir_a_afiliado(url_limpia)
+
+        img_match = re.search(r'src=["\'](https?://[^"\']+)["\']', descripcion)
+        imagen = img_match.group(1) if img_match else ""
+
+        ofertas.append({
+            "id": guid,
+            "titulo": titulo,
+            "url": url_afiliado,
+            "imagen": imagen
+        })
+
+    return ofertas
+
+def publicar_en_telegram(oferta):
     caption = (
-        f"🔥 <b>{titulo}</b>\n\n"
-        f"💰 <b>Ahora:</b> ${precio:,.0f} MXN\n"
-        f"❌ <b>Antes:</b> <s>${precio_original:,.0f} MXN</s>\n"
-        f"📉 <b>Descuento:</b> {descuento}% OFF\n\n"
+        f"🔥 <b>{oferta['titulo']}</b>\n\n"
+        f"🏪 <b>Tienda:</b> Mercado Libre México\n\n"
         f"<i>#Oferta #MercadoLibreMX #Descuento</i>"
     )
-
     botones = {
         "inline_keyboard": [[
-            {"text": "🛒 Ver oferta en Mercado Libre", "url": url_afiliado}
+            {"text": "🛒 Ver oferta en Mercado Libre", "url": oferta["url"]}
         ]]
     }
 
-    if imagen:
+    if oferta["imagen"]:
         r = requests.post(
             f"https://api.telegram.org/bot{TOKEN}/sendPhoto",
             json={
                 "chat_id": CANAL,
-                "photo": imagen,
+                "photo": oferta["imagen"],
                 "caption": caption,
                 "parse_mode": "HTML",
                 "reply_markup": botones
@@ -78,7 +109,6 @@ def publicar_en_telegram(item, descuento):
         if r.json().get("ok"):
             return True
 
-    # Respaldo solo texto si la imagen falla
     r = requests.post(
         f"https://api.telegram.org/bot{TOKEN}/sendMessage",
         json={
@@ -93,31 +123,20 @@ def publicar_en_telegram(item, descuento):
 
 def main():
     publicados = cargar_publicados()
-    items = buscar_ofertas()
+    ofertas = buscar_ofertas_ml()
     enviados = 0
 
-    for item in items:
+    for oferta in ofertas:
         if enviados >= MAX_POSTS_POR_CORRIDA:
             break
-
-        item_id = item.get("id")
-        precio = item.get("price")
-        original = item.get("original_price")
-
-        if not item_id or item_id in publicados:
-            continue
-        if not precio or not original or original <= precio:
+        if not oferta["id"] or oferta["id"] in publicados:
             continue
 
-        descuento = round(((original - precio) / original) * 100)
-        if descuento < DESCUENTO_MINIMO:
-            continue
-
-        if publicar_en_telegram(item, descuento):
-            guardar_publicado(item_id)
-            publicados.add(item_id)
+        if publicar_en_telegram(oferta):
+            guardar_publicado(oferta["id"])
+            publicados.add(oferta["id"])
             enviados += 1
-            print(f"Publicado: {item_id} ({descuento}% OFF)")
+            print(f"Publicado: {oferta['titulo']}")
 
     print(f"Corrida terminada. Total publicados: {enviados}")
 
