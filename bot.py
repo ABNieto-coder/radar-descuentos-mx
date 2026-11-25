@@ -10,7 +10,7 @@ MATT_WORD = "charlysource"
 MATT_TOOL = "29165755"
 
 ARCHIVO_HISTORIAL = "publicados.txt"
-MAX_POSTS_POR_CORRIDA = 2
+MAX_POSTS_POR_CORRIDA = 5
 RSS_URL = "https://www.promodescuentos.com/rss"
 
 def cargar_publicados():
@@ -40,7 +40,6 @@ def extraer_url_ml_de_texto(texto):
         if "mercadolibre.com.mx" in baja or "meli.la" in baja:
             candidatos.append(limpia.split("?")[0])
 
-    # Prioriza enlaces de producto o publicación específica
     for c in candidatos:
         b = c.lower()
         if "/p/" in b or "mlm-" in b or "articulo.mercadolibre.com.mx" in b or "meli.la/" in b:
@@ -64,8 +63,12 @@ def buscar_ofertas_ml():
             guid = (item.findtext("guid") or link_rss).strip()
             descripcion = item.findtext("description") or ""
 
-            texto_completo = f"{titulo} {descripcion}"
-            if "mercado libre" not in texto_completo.lower() and "mercadolibre" not in texto_completo.lower():
+            texto_completo = f"{titulo} {descripcion} {link_rss}".lower()
+            if (
+                "mercado libre" not in texto_completo
+                and "mercadolibre" not in texto_completo
+                and "meli.la" not in texto_completo
+            ):
                 continue
 
             url_ml = extraer_url_ml_de_texto(f"{link_rss} {descripcion}")
