@@ -1,14 +1,12 @@
 import html
 import os
 import re
-import time
 import xml.etree.ElementTree as ET
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse, unquote, quote
 import requests
 
 TOKEN = os.environ["TELEGRAM_TOKEN"]
 CANAL = "@RadarDescuentosMX247"
-LINK_CANAL = "https://t.me/RadarDescuentosMX247"
 MATT_WORD = "charlysource"
 MATT_TOOL = "29165755"
 
@@ -30,23 +28,6 @@ HEADERS_BROWSER = {
     "Accept-Language": "es-MX,es;q=0.9,en;q=0.8",
 }
 
-RUTAS_BLOQUEADAS = (
-    "/ofertas",
-    "/listado",
-    "/tienda/",
-    "/tiendas-oficiales",
-    "/c/",
-    "/gz/",
-    "/ayuda",
-    "/login",
-    "/cuenta",
-    "/carrito",
-    "/perfil",
-    "/cupones",
-    "/mas-vendidos",
-    "/l/",
-)
-
 PARAMS_A_LIMPIAR = {
     "matt_word",
     "matt_tool",
@@ -62,71 +43,6 @@ PARAMS_A_LIMPIAR = {
     "tracking_id",
     "ref",
 }
-
-PALABRAS_EXCLUIDAS = (
-    "usado", "usada", "reacondicionado", "reacondicionada", "refurbished",
-    "coca-cola", "coca cola", "pepsi", "refresco", "cerveza", "whisky",
-    "tequila", "vino tinto", "café molido", "cafe molido", "café soluble",
-    "leche ", "galletas", "cereal ", "atún", "atun", "aceite comestible",
-    "croquetas", "alimento para perro", "alimento para gato", "despensa"
-)
-
-CATEGORIAS_RENTABLES = [
-    {
-        "nombre": "💄 Belleza y Perfumería",
-        "prioridad": 100,
-        "keywords": (
-            "perfume", "eau de toilette", "eau de parfum", "edt", "edp",
-            "fragancia", "sérum", "serum", "niacinamida", "ácido hialurónico",
-            "bloqueador", "protector solar", "crema facial", "shampoo",
-            "maquillaje", "labial", "skincare", "rasuradora", "afeitadora",
-            "secadora de cabello", "plancha de cabello"
-        ),
-    },
-    {
-        "nombre": "👟 Tenis, Ropa y Accesorios",
-        "prioridad": 95,
-        "keywords": (
-            "tenis", "calzado", "zapatos", "botas", "sandalias", "sudadera",
-            "chamarra", "playera", "pantalón", "jeans", "mochila", "bolsa",
-            "cartera", "reloj", "lentes de sol", "gorra", "nike", "adidas",
-            "puma", "vans"
-        ),
-    },
-    {
-        "nombre": "🛠️ Herramientas y Autos",
-        "prioridad": 90,
-        "keywords": (
-            "taladro", "rotomartillo", "esmeriladora", "hidrolavadora", "llave",
-            "desarmador", "herramienta", "compresor", "soldadora", "llanta",
-            "escáner automotriz", "escaner automotriz", "autoestéreo", "dashcam",
-            "cámara reversa", "aceite sintético", "batería carro", "bosch",
-            "dewalt", "makita", "truper"
-        ),
-    },
-    {
-        "nombre": "🏠 Hogar, Cocina y Smart Home",
-        "prioridad": 85,
-        "keywords": (
-            "freidora de aire", "air fryer", "cafetera", "licuadora",
-            "aspiradora", "robot aspirador", "sartén", "batería de cocina",
-            "termo", "colchón", "almohada", "sábanas", "lámpara",
-            "foco inteligente", "alexa", "echo dot", "cerradura inteligente",
-            "organizador", "ventilador", "calefactor"
-        ),
-    },
-    {
-        "nombre": "📱 Tecnología, Audio y Gaming",
-        "prioridad": 80,
-        "keywords": (
-            "audífonos", "audifonos", "bluetooth", "celular", "smartphone",
-            "iphone", "samsung galaxy", "xiaomi", "motorola", "tablet", "ipad",
-            "laptop", "monitor", "ssd", "memoria ram", "teclado", "mouse",
-            "nintendo", "playstation", "ps5", "xbox", "control", "bocina",
-            "smartwatch", "cámara"
-        ),
-    },
-]
 
 
 def cargar_publicados():
@@ -168,46 +84,40 @@ def extraer_mlm_id(url):
     return ""
 
 
-def es_articulo_ml_estricto(url):
+def es_url_ml_valida(url):
     limpia = normalizar_url(url)
     if not limpia:
         return False
+    host = (urlparse(limpia).netloc or "").lower()
+    return (
+        host == "mercadolibre.com.mx"
+        or host.endswith(".mercadolibre.com.mx")
+        or host == "meli.la"
+        or host.endswith(".meli.la")
+    )
 
+
+def es_articulo_especifico(url):
+    limpia = normalizar_url(url)
+    if not es_url_ml_valida(limpia):
+        return False
     partes = urlparse(limpia)
     host = (partes.netloc or "").lower()
     ruta = (partes.path or "").lower()
-
-    if not host or not ruta or ruta == "/":
-        return False
-
-    if any(seg in ruta for seg in RUTAS_BLOQUEADAS):
-        return False
-
-    es_ml_mx = host == "mercadolibre.com.mx" or host.endswith(".mercadolibre.com.mx")
-    if not es_ml_mx:
-        return False
-
-    mlm_id = extraer_mlm_id(ruta)
-    if host.startswith("articulo.mercadolibre.com.mx") and mlm_id:
+    if host.endswith("meli.la"):
+        return bool(ruta.strip("/"))
+    if extraer_mlm_id(ruta) or "/p/" in ruta or "-_jm" in ruta:
         return True
-    if "/p/mlm" in ruta and mlm_id:
-        return True
-    if mlm_id and ("-_" in ruta or "/p/" in ruta or host.startswith("articulo.")):
-        return True
-    if re.search(r"/[a-z0-9-]+-mlm\d+", ruta):
-        return True
-
     return False
 
 
-def blindar_link_afiliado(url_articulo):
-    limpia = normalizar_url(url_articulo)
-    if not es_articulo_ml_estricto(limpia):
-        return ""
+def blindar_link_afiliado(url_destino):
+    limpia = normalizar_url(url_destino)
+    if not es_url_ml_valida(limpia):
+        limpia = "https://www.mercadolibre.com.mx/ofertas"
 
     partes = urlparse(limpia)
     params_previos = parse_qs(partes.query, keep_blank_values=False)
-
     params_limpios = {
         k: v for k, v in params_previos.items()
         if k.lower() not in PARAMS_A_LIMPIAR
@@ -215,49 +125,14 @@ def blindar_link_afiliado(url_articulo):
     params_limpios["matt_word"] = [MATT_WORD]
     params_limpios["matt_tool"] = [MATT_TOOL]
 
-    query_blindado = urlencode(params_limpios, doseq=True)
-    url_blindada = urlunparse((
+    return urlunparse((
         "https",
         partes.netloc.lower(),
-        partes.path,
+        partes.path or "/",
         "",
-        query_blindado,
+        urlencode(params_limpios, doseq=True),
         ""
     ))
-
-    parsed_check = urlparse(url_blindada)
-    qs_check = parse_qs(parsed_check.query)
-
-    if (
-        parsed_check.scheme == "https"
-        and es_articulo_ml_estricto(url_blindada)
-        and qs_check.get("matt_word") == [MATT_WORD]
-        and qs_check.get("matt_tool") == [MATT_TOOL]
-    ):
-        return url_blindada
-
-    return ""
-
-
-def clasificar_y_puntuar_oferta(titulo, descripcion, descuento_str):
-    texto = f"{titulo} {descripcion}".lower()
-
-    if any(p in texto for p in PALABRAS_EXCLUIDAS):
-        return None, 0
-
-    categoria_elegida = "🔥 Oferta Destacada"
-    puntaje = 50
-
-    for cat in CATEGORIAS_RENTABLES:
-        if any(kw in texto for kw in cat["keywords"]):
-            categoria_elegida = cat["nombre"]
-            puntaje = cat["prioridad"]
-            break
-
-    if descuento_str:
-        puntaje += 15
-
-    return categoria_elegida, puntaje
 
 
 def extraer_urls_candidatas(texto):
@@ -270,69 +145,45 @@ def extraer_urls_candidatas(texto):
     return encontrados
 
 
-def peticion_con_reintento(url, timeout=10):
-    ultimo_error = None
-    for intento in range(2):
-        try:
-            return requests.get(
-                url,
-                headers=HEADERS_BROWSER,
-                allow_redirects=True,
-                timeout=timeout,
-            )
-        except Exception as e:
-            ultimo_error = e
-            if intento == 0:
-                time.sleep(0.5)
-    raise ultimo_error
+def resolver_enlace_ml(link_rss, descripcion, xml_item, titulo):
+    candidatos = extraer_urls_candidatas(f"{link_rss} {descripcion} {xml_item}")
 
+    # 1. Prioriza enlace directo a artículo o acortador meli.la
+    for cand in candidatos:
+        if es_articulo_especifico(cand):
+            return cand
 
-def resolver_hasta_articulo_estricto(url_inicial, profundidad=0):
-    if profundidad > 3:
-        return ""
+    # 2. Intenta resolver redirecciones desde link_rss o candidatos de ML / Promodescuentos
+    for cand in [link_rss] + candidatos:
+        u = normalizar_url(cand)
+        if not u:
+            continue
+        host = (urlparse(u).netloc or "").lower()
+        if "mercadolibre.com.mx" in host or "meli.la" in host or "promodescuentos.com" in host:
+            try:
+                resp = requests.get(u, headers=HEADERS_BROWSER, allow_redirects=True, timeout=10)
+                final_u = normalizar_url(resp.url)
+                if es_articulo_especifico(final_u):
+                    return final_u
+                for interna in extraer_urls_candidatas(resp.text or ""):
+                    if es_articulo_especifico(interna):
+                        return interna
+                if es_url_ml_valida(final_u):
+                    return final_u
+            except Exception:
+                continue
 
-    limpia = normalizar_url(url_inicial)
-    if not limpia:
-        return ""
+    # 3. Si ya venía alguna URL directa de mercadolibre.com.mx, úsala
+    for cand in candidatos:
+        if es_url_ml_valida(cand):
+            return cand
 
-    if es_articulo_ml_estricto(limpia):
-        return limpia
+    # 4. Búsqueda por título en Mercado Libre México como respaldo útil
+    titulo_limpio = re.sub(r"(?i)mercado\s*libre\s*:?", "", titulo or "").strip()[:85]
+    if titulo_limpio:
+        return f"https://listado.mercadolibre.com.mx/{quote(titulo_limpio)}"
 
-    host = (urlparse(limpia).netloc or "").lower()
-    dominio_permitido = (
-        "mercadolibre.com.mx" in host
-        or "meli.la" in host
-        or "promodescuentos.com" in host
-    )
-    if not dominio_permitido:
-        return ""
-
-    try:
-        resp = peticion_con_reintento(limpia, timeout=11)
-        if resp.status_code >= 400:
-            return ""
-
-        final_url = normalizar_url(resp.url)
-        if es_articulo_ml_estricto(final_url):
-            return final_url
-
-        cuerpo = resp.text or ""
-        candidatos = extraer_urls_candidatas(cuerpo)
-
-        for cand in candidatos:
-            if es_articulo_ml_estricto(cand):
-                return cand
-
-        for cand in candidatos:
-            h = (urlparse(cand).netloc or "").lower()
-            if "meli.la" in h or ("promodescuentos.com" in h and "/visit/" in cand.lower()):
-                resuelta = resolver_hasta_articulo_estricto(cand, profundidad + 1)
-                if resuelta and es_articulo_ml_estricto(resuelta):
-                    return resuelta
-    except Exception:
-        pass
-
-    return ""
+    return "https://www.mercadolibre.com.mx/ofertas"
 
 
 def extraer_precio_y_descuento(titulo, descripcion):
@@ -352,13 +203,13 @@ def escapar_html(texto):
     return html.escape(html.unescape(texto or "").strip())
 
 
-def buscar_ofertas_blindadas():
+def buscar_ofertas():
     ofertas = []
     vistos_corrida = set()
 
     for feed_url in RSS_URLS:
         try:
-            resp = peticion_con_reintento(feed_url, timeout=15)
+            resp = requests.get(feed_url, headers=HEADERS_BROWSER, timeout=15)
             resp.raise_for_status()
             root = ET.fromstring(resp.content)
         except Exception as e:
@@ -382,32 +233,17 @@ def buscar_ofertas_blindadas():
             ):
                 continue
 
-            precio, descuento = extraer_precio_y_descuento(titulo, descripcion)
-            categoria, puntaje = clasificar_y_puntuar_oferta(titulo, descripcion, descuento)
-            if categoria is None:
-                continue
-
             xml_item = ET.tostring(item, encoding="unicode", method="xml") or ""
-            url_articulo = ""
+            url_resuelta = resolver_enlace_ml(link_rss, descripcion, xml_item, titulo)
+            url_afiliado = blindar_link_afiliado(url_resuelta)
+            mlm_id = extraer_mlm_id(url_afiliado)
 
-            for cand in extraer_urls_candidatas(f"{link_rss} {descripcion} {xml_item}"):
-                if es_articulo_ml_estricto(cand):
-                    url_articulo = cand
-                    break
-
-            if not url_articulo:
-                url_articulo = resolver_hasta_articulo_estricto(link_rss)
-
-            url_blindada = blindar_link_afiliado(url_articulo)
-            if not url_blindada:
-                continue
-
-            mlm_id = extraer_mlm_id(url_blindada)
-            clave_dedup = mlm_id or url_blindada
+            clave_dedup = mlm_id or guid
             if clave_dedup in vistos_corrida:
                 continue
             vistos_corrida.add(clave_dedup)
 
+            precio, descuento = extraer_precio_y_descuento(titulo, descripcion)
             img_match = re.search(r'src=["\'](https?://[^"\']+)["\']', descripcion)
             imagen = normalizar_url(img_match.group(1)) if img_match else ""
 
@@ -415,50 +251,32 @@ def buscar_ofertas_blindadas():
                 "guid": guid,
                 "mlm_id": mlm_id,
                 "titulo": titulo,
-                "categoria": categoria,
-                "puntaje": puntaje,
                 "precio": precio,
                 "descuento": descuento,
-                "url": url_blindada,
+                "url": url_afiliado,
                 "imagen": imagen,
             })
 
-    ofertas.sort(key=lambda x: x["puntaje"], reverse=True)
     return ofertas
 
 
-def auditar_y_blindar_oferta(oferta):
-    if not isinstance(oferta, dict):
-        return ""
-    titulo = (oferta.get("titulo") or "").strip()
-    if not titulo:
-        return ""
-    return blindar_link_afiliado(oferta.get("url", ""))
-
-
-def construir_link_compartir(titulo, url_blindada):
+def construir_link_compartir(titulo, url_afiliado):
     texto_compartir = (
         f"🔥 ¡Mira esta oferta en Mercado Libre México!\n"
         f"{titulo}\n\n"
         f"👉 Más descuentos diarios en {CANAL}"
     )
-    return f"https://t.me/share/url?url={quote(url_blindada)}&text={quote(texto_compartir)}"
+    return f"https://t.me/share/url?url={quote(url_afiliado)}&text={quote(texto_compartir)}"
 
 
 def publicar_en_telegram(oferta):
-    url_blindada = auditar_y_blindar_oferta(oferta)
-    if not url_blindada:
+    url_afiliado = blindar_link_afiliado(oferta.get("url", ""))
+    titulo_crudo = (oferta.get("titulo") or "").strip()
+    if not url_afiliado or not titulo_crudo:
         return False
 
-    titulo_crudo = (oferta.get("titulo") or "").strip()
     titulo_seguro = escapar_html(titulo_crudo)
-    categoria_segura = escapar_html(oferta.get("categoria") or "🔥 Oferta Destacada")
-
-    lineas = [
-        f"<b>{categoria_segura}</b>",
-        f"🔥 <b>{titulo_seguro}</b>",
-        "",
-    ]
+    lineas = [f"🔥 <b>{titulo_seguro}</b>", ""]
 
     if oferta.get("precio") or oferta.get("descuento"):
         detalle = []
@@ -478,10 +296,10 @@ def publicar_en_telegram(oferta):
     ])
     caption = "\n".join(lineas)
 
-    link_compartir = construir_link_compartir(titulo_crudo, url_blindada)
+    link_compartir = construir_link_compartir(titulo_crudo, url_afiliado)
     botones = {
         "inline_keyboard": [
-            [{"text": "🛒 Ver producto en Mercado Libre", "url": url_blindada}],
+            [{"text": "🛒 Ver oferta en Mercado Libre", "url": url_afiliado}],
             [{"text": "📤 Compartir oferta con un amigo", "url": link_compartir}],
         ]
     }
@@ -523,7 +341,7 @@ def publicar_en_telegram(oferta):
 
 def main():
     publicados = cargar_publicados()
-    ofertas = buscar_ofertas_blindadas()
+    ofertas = buscar_ofertas()
     enviados = 0
 
     for oferta in ofertas:
@@ -532,29 +350,22 @@ def main():
 
         guid = oferta["guid"]
         mlm_id = oferta["mlm_id"]
-        url_blindada = auditar_y_blindar_oferta(oferta)
 
-        if not url_blindada:
-            continue
-
-        if (
-            guid in publicados
-            or (mlm_id and mlm_id in publicados)
-            or url_blindada in publicados
-        ):
+        if guid in publicados or (mlm_id and mlm_id in publicados):
             continue
 
         if publicar_en_telegram(oferta):
-            for clave in (guid, mlm_id, url_blindada):
-                if clave and clave not in publicados:
-                    guardar_publicado(clave)
-                    publicados.add(clave)
+            guardar_publicado(guid)
+            publicados.add(guid)
+            if mlm_id:
+                guardar_publicado(mlm_id)
+                publicados.add(mlm_id)
             enviados += 1
-            print(f"Publicado [{oferta['categoria']}] [{mlm_id or 'ART'}]: {oferta['titulo']} -> {url_blindada}")
+            print(f"Publicado: {oferta['titulo']} -> {oferta['url']}")
 
     print(f"Corrida terminada. Total publicados: {enviados}")
 
 
 if __name__ == "__main__":
     main()
-        
+    
