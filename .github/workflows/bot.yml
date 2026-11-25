@@ -1,18 +1,20 @@
 name: Radar de Descuentos MX
 
 on:
-  schedule:
-    - cron: "*/15 * * * *"
   workflow_dispatch:
+  schedule:
+    - cron: "0 15 * * *"   # 09:00 AM CST (UTC-6)
+    - cron: "0 19 * * *"   # 01:00 PM CST (UTC-6)
+    - cron: "0 0 * * *"    # 06:00 PM CST (UTC-6)
 
 permissions:
   contents: write
 
 jobs:
-  publicar-ofertas:
+  run-radar:
     runs-on: ubuntu-latest
     steps:
-      - name: Descargar repositorio
+      - name: Checkout repositorio
         uses: actions/checkout@v4
 
       - name: Configurar Python
@@ -21,18 +23,20 @@ jobs:
           python-version: "3.11"
 
       - name: Instalar dependencias
-        run: pip install -r requirements.txt
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-      - name: Ejecutar bot de ofertas
+      - name: Ejecutar radar de ofertas
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-        run: python bot.py
+        run: |
+          python main.py
 
-      - name: Guardar historial de publicados
+      - name: Actualizar historial de publicados
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add publicados.txt
+          git add -A
           git diff --staged --quiet || git commit -m "Actualiza historial de ofertas"
           git push
-          
