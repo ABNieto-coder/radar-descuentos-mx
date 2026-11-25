@@ -3,9 +3,7 @@ name: Radar de Descuentos MX
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 15 * * *"   # 09:00 AM CST (UTC-6)
-    - cron: "0 19 * * *"   # 01:00 PM CST (UTC-6)
-    - cron: "0 0 * * *"    # 06:00 PM CST (UTC-6)
+    - cron: "*/30 * * * *"
 
 permissions:
   contents: write
@@ -31,12 +29,13 @@ jobs:
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
         run: |
-          python main.py
+          python bot.py
 
       - name: Actualizar historial de publicados
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -A
+          git add publicados.txt
           git diff --staged --quiet || git commit -m "Actualiza historial de ofertas"
           git push
+          
