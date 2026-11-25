@@ -2,7 +2,7 @@ name: Radar de Descuentos MX
 
 on:
   schedule:
-    - cron: "0 * * * *"
+    - cron: "*/15 * * * *"
   workflow_dispatch:
 
 permissions:
