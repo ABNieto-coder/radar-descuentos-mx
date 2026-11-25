@@ -33,11 +33,20 @@ def convertir_a_afiliado(url_producto):
 
 def extraer_url_ml_de_texto(texto):
     urls = re.findall(r'https?://[^\s"\'<>]+', texto or "")
+    candidatos = []
     for u in urls:
         limpia = u.rstrip(").,;")
-        if "mercadolibre.com.mx" in limpia.lower() or "meli.la" in limpia.lower():
-            return limpia.split("?")[0]
-    return ""
+        baja = limpia.lower()
+        if "mercadolibre.com.mx" in baja or "meli.la" in baja:
+            candidatos.append(limpia.split("?")[0])
+
+    # Prioriza enlaces de producto o publicación específica
+    for c in candidatos:
+        b = c.lower()
+        if "/p/" in b or "mlm-" in b or "articulo.mercadolibre.com.mx" in b or "meli.la/" in b:
+            return c
+
+    return candidatos[0] if candidatos else ""
 
 def buscar_ofertas_ml():
     ofertas = []
