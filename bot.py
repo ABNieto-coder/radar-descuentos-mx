@@ -12,8 +12,8 @@ MATT_TOOL = "29165755"
 ARCHIVO_HISTORIAL = "publicados.txt"
 MAX_POSTS_POR_CORRIDA = 2
 
-# Feed RSS público de ofertas en México
-RSS_URL = "https://www.promodescuentos.com/rss/new"
+# Feed RSS general de ofertas en México
+RSS_URL = "https://www.promodescuentos.com/rss"
 
 def cargar_publicados():
     if not os.path.exists(ARCHIVO_HISTORIAL):
@@ -64,7 +64,7 @@ def buscar_ofertas_ml():
             continue
 
         url_final = resolver_url_final(link_rss)
-        if "mercadolibre.com.mx" not in url_final:
+        if "mercadolibre" not in url_final.lower() and "meli.la" not in url_final.lower():
             continue
 
         url_limpia = url_final.split("?")[0]
@@ -142,3 +142,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
