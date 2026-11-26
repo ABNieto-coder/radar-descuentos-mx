@@ -28,6 +28,8 @@ jobs:
       - name: Ejecutar radar de ofertas
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          IG_USER_ID: ${{ secrets.IG_USER_ID }}
+          IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
         run: |
           python bot.py
 
@@ -38,4 +40,3 @@ jobs:
           git add publicados.txt
           git diff --staged --quiet || git commit -m "Actualiza historial de ofertas"
           git push
-          
