@@ -71,7 +71,6 @@ def extraer_mlm_desde_oferta(oferta: dict) -> str:
 
 
 def obtener_imagen_desde_api_ml(mlm_id: str) -> str:
-    """Consulta la API pública de Mercado Libre para obtener imagen oficial sin 403."""
     if not mlm_id:
         return ""
     try:
@@ -97,7 +96,6 @@ def obtener_imagen_desde_api_ml(mlm_id: str) -> str:
 
 
 def descargar_imagen_producto(oferta: dict) -> Image.Image | None:
-    """Descarga la imagen real del producto; si da 403 o falla, intenta vía API de ML."""
     candidatas = []
     img_raw = normalizar_imagen_ml(oferta.get("imagen", ""))
     if img_raw:
@@ -122,7 +120,6 @@ def descargar_imagen_producto(oferta: dict) -> Image.Image | None:
 
 
 def limpiar_texto_para_voz(texto: str) -> str:
-    """Normaliza símbolos y signos para que Edge-TTS narre de forma fluida y natural."""
     limpio = html.unescape(texto or "")
     limpio = re.sub(r"https?://\S+", "", limpio)
     limpio = limpio.replace("$", " pesos ")
@@ -133,16 +130,15 @@ def limpiar_texto_para_voz(texto: str) -> str:
 
 
 def generar_guion_voz(oferta: dict) -> str:
-    """Genera un guion corto con gancho directo en español mexicano usando Gemini."""
     titulo = html.unescape((oferta.get("titulo") or "").strip())
     precio = (oferta.get("precio") or "").strip()
     descuento = (oferta.get("descuento") or "").strip()
 
-    gancho_base = f"Bajón de precio en {titulo[:65]}."
+    gancho = f"Oferta en {titulo[:60]}."
     if descuento:
-        gancho_base = f"{descuento} en {titulo[:60]}."
+        gancho = f"{descuento} en {titulo[:55]}."
     respaldo = limpiar_texto_para_voz(
-        f"{gancho_base} {f'Queda en {precio}. ' if precio else ''}Entra al link de la bio para verlo."
+        f"{gancho} {f'Precio de {precio}. ' if precio else ''}Revisa el link en la bio."
     )
 
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
@@ -150,11 +146,10 @@ def generar_guion_voz(oferta: dict) -> str:
         return respaldo
 
     prompt = (
-        "Actúa como creador de videos cortos de ofertas en México. "
-        "Escribe un guion de 18 a 25 palabras (unos 7 a 9 segundos) con un gancho fuerte en la primera frase "
-        "(sin saludos ni introducciones largas). Menciona el producto, el precio o descuento si está disponible, "
-        "y cierra invitando a revisar el enlace en la bio. "
-        "Escribe solo el texto a locutar, sin emojis, sin viñetas y sin comillas.\n"
+        "Escribe un guion breve de 18 a 24 palabras en español de México para un Reel de ofertas. "
+        "Empieza directo con un gancho en la primera frase sin saludos. "
+        "Menciona el producto, el precio o descuento si existe, y cierra invitando al enlace en la bio. "
+        "Devuelve solo el texto a locutar, sin emojis, sin asteriscos y sin comillas.\n"
         f"Producto: {titulo}\n"
         f"Precio: {precio or 'no especificado'}\n"
         f"Descuento: {descuento or 'no especificado'}"
@@ -176,7 +171,7 @@ def generar_guion_voz(oferta: dict) -> str:
                     if 15 <= len(limpio) <= 280:
                         return limpio
     except Exception as e:
-        print(f"[REEL] Aviso Gemini (usando guion de respaldo): {e}")
+        print(f"[REEL] Aviso Gemini (usando respaldo): {e}")
 
     return respaldo
 
@@ -187,21 +182,18 @@ async def _sintetizar_voz(texto: str, ruta_salida: str, voz: str):
 
 
 def generar_audio_voz(guion: str, ruta_voz: str) -> float:
-    """Genera el MP3 de voz con Edge-TTS y estima su duración sin depender de ffprobe."""
     voz = random.choice(VOCES_MX)
     asyncio.run(_sintetizar_voz(guion, ruta_voz, voz))
 
     if not os.path.exists(ruta_voz) or os.path.getsize(ruta_voz) == 0:
         raise RuntimeError("Edge-TTS no generó archivo de audio válido.")
 
-    # ~13.5 caracteres por segundo en español mexicano con rate="+8%"
     chars_utiles = max(len(guion or ""), 45)
     duracion_estimada = round(chars_utiles / 13.5, 2)
     return max(6.5, min(13.5, duracion_estimada))
 
 
 def descargar_musica_automatica(ruta_musica: str) -> str:
-    """Busca y descarga una pista libre de derechos desde Freesound (o usa assets/*.mp3)."""
     api_key = os.getenv("FREESOUND_API_KEY", "").strip()
     if api_key:
         try:
@@ -246,19 +238,16 @@ def descargar_musica_automatica(ruta_musica: str) -> str:
 
 
 def crear_imagen_reel(oferta: dict, ruta_salida: str) -> bool:
-    """Genera el lienzo 1080x1920 priorizando la foto real del producto; usa tarjeta de respaldo solo si falla."""
     ancho, alto = 1080, 1920
     canvas = Image.new("RGB", (ancho, alto), (15, 23, 42))
     draw = ImageDraw.Draw(canvas)
 
-    # Franja superior con gancho visual
     descuento = (oferta.get("descuento") or "").strip().upper()
     texto_badge = f"OFERTA {descuento}" if descuento else "OFERTA DETECTADA"
     draw.rounded_rectangle([120, 120, 960, 225], radius=45, fill=(239, 68, 68))
     f_badge = cargar_fuente(FONT_BOLD_PATHS, 44)
     draw.text((ancho // 2, 172), texto_badge[:24], fill=(255, 255, 255), font=f_badge, anchor="mm")
 
-    # Tarjeta central de producto (fuera de bordes cubiertos por la UI de Reels)
     card_x1, card_y1, card_x2, card_y2 = 100, 275, 980, 1055
     draw.rounded_rectangle([card_x1, card_y1, card_x2, card_y2], radius=40, fill=(255, 255, 255))
 
@@ -298,7 +287,6 @@ def crear_imagen_reel(oferta: dict, ruta_salida: str) -> bool:
                 anchor="mm",
             )
 
-    # Título corto en zona segura media
     titulo = html.unescape((oferta.get("titulo") or "").strip())
     lineas_titulo = textwrap.wrap(titulo, width=28)[:3]
     f_titulo = cargar_fuente(FONT_BOLD_PATHS, 48)
@@ -307,14 +295,12 @@ def crear_imagen_reel(oferta: dict, ruta_salida: str) -> bool:
         draw.text((ancho // 2, y_cursor), linea, fill=(248, 250, 252), font=f_titulo, anchor="mm")
         y_cursor += 60
 
-    # Bloque de precio destacado
     precio = (oferta.get("precio") or "").strip()
     if precio:
         draw.rounded_rectangle([180, 1340, 900, 1475], radius=35, fill=(34, 197, 94))
         f_precio = cargar_fuente(FONT_BOLD_PATHS, 72)
         draw.text((ancho // 2, 1407), precio, fill=(15, 23, 42), font=f_precio, anchor="mm")
 
-    # CTA ubicado por encima de la zona inferior cubierta por la interfaz de Instagram
     f_cta = cargar_fuente(FONT_BOLD_PATHS, 38)
     f_sub = cargar_fuente(FONT_REG_PATHS, 32)
     draw.text((ancho // 2, 1555), "LINK DIRECTO EN NUESTRA BIO", fill=(250, 204, 21), font=f_cta, anchor="mm")
@@ -325,13 +311,11 @@ def crear_imagen_reel(oferta: dict, ruta_salida: str) -> bool:
 
 
 def renderizar_video_mp4(ruta_imagen: str, ruta_voz: str, ruta_musica: str, duracion: float, ruta_video: str) -> bool:
-    """Renderiza un MP4 vertical 1080x1920 a 30 FPS con movimiento suave, voz y música de fondo."""
     duracion = max(6.5, min(14.0, round(duracion + 1.0, 2)))
     total_frames = int(duracion * FPS)
     fade_out_v = max(0.5, round(duracion - 0.45, 2))
     fade_out_a = max(0.5, round(duracion - 0.9, 2))
 
-    # Movimiento suave de acercamiento escalado a 1080x1920 a 30 FPS
     filtro_video = (
         f"[0:v]scale=1080:1920,"
         f"zoompan=z='min(1.0+0.0004*on,1.05)'"
@@ -407,8 +391,89 @@ def armar_caption_reel(oferta: dict) -> str:
     return "\n".join(lineas)
 
 
+def _subir_y_publicar_reel(ig_user_id: str, access_token: str, ruta_mp4: str, caption: str) -> bool:
+    file_size = os.path.getsize(ruta_mp4)
+
+    res_init = requests.post(
+        f"https://graph.facebook.com/{IG_API_VERSION}/{ig_user_id}/media",
+        data={
+            "media_type": "REELS",
+            "upload_type": "resumable",
+            "caption": caption,
+            "share_to_feed": "true",
+            "access_token": access_token,
+        },
+        timeout=30,
+    )
+    data_init = res_init.json()
+    if "id" not in data_init:
+        print(f"[REEL] Error iniciando contenedor: {data_init}")
+        return False
+
+    creation_id = data_init["id"]
+    upload_uri = data_init.get(
+        "uri",
+        f"https://rupload.facebook.com/ig-api-upload/{IG_API_VERSION}/{creation_id}",
+    )
+
+    with open(ruta_mp4, "rb") as f_video:
+        res_up = requests.post(
+            upload_uri,
+            headers={
+                "Authorization": f"OAuth {access_token}",
+                "Content-Type": "video/mp4",
+                "offset": "0",
+                "file_size": str(file_size),
+            },
+            data=f_video,
+            timeout=120,
+        )
+    try:
+        data_up = res_up.json()
+    except Exception:
+        data_up = {"raw": res_up.text[:300]}
+
+    if not res_up.ok or data_up.get("success") is False:
+        print(f"[REEL] Error subiendo video (HTTP {res_up.status_code}): {data_up}")
+        return False
+
+    for _ in range(24):
+        time.sleep(5)
+        res_st = requests.get(
+            f"https://graph.facebook.com/{IG_API_VERSION}/{creation_id}",
+            params={"fields": "status_code,status", "access_token": access_token},
+            timeout=20,
+        )
+        status_data = res_st.json()
+        status_code = status_data.get("status_code")
+
+        if status_code == "FINISHED":
+            break
+        if status_code in ("ERROR", "EXPIRED"):
+            print(f"[REEL] Meta rechazó el video: {status_data}")
+            return False
+    else:
+        print("[REEL] Tiempo agotado esperando procesamiento de Meta.")
+        return False
+
+    res_pub = requests.post(
+        f"https://graph.facebook.com/{IG_API_VERSION}/{ig_user_id}/media_publish",
+        data={
+            "creation_id": creation_id,
+            "access_token": access_token,
+        },
+        timeout=30,
+    )
+    data_pub = res_pub.json()
+    if "id" not in data_pub:
+        print(f"[REEL] Error publicando Reel: {data_pub}")
+        return False
+
+    print(f"[REEL] ¡Reel publicado con éxito! ID: {data_pub['id']}")
+    return True
+
+
 def publicar_reel_en_instagram(oferta: dict) -> bool:
-    """Genera el Reel 9:16 con voz y música automática y lo sube a Meta Graph API."""
     ig_user_id = os.getenv("IG_USER_ID", "")
     access_token = os.getenv("IG_ACCESS_TOKEN", "")
     if not ig_user_id or not access_token:
@@ -436,83 +501,15 @@ def publicar_reel_en_instagram(oferta: dict) -> bool:
             return False
 
         caption = armar_caption_reel(oferta)
-        file_size = os.path.getsize(ruta_mp4)
 
-        try:
-            res_init = requests.post(
-                f"https://graph.facebook.com/{IG_API_VERSION}/{ig_user_id}/media",
-                data={
-                    "media_type": "REELS",
-                    "upload_type": "resumable",
-                    "caption": caption,
-                    "share_to_feed": "true",
-                    "access_token": access_token,
-                },
-                timeout=30,
-            )
-            data_init = res_init.json()
-            if "id" not in data_init:
-                print(f"[REEL] Error iniciando contenedor: {data_init}")
-                return False
+        for intento in range(2):
+            try:
+                if _subir_y_publicar_reel(ig_user_id, access_token, ruta_mp4, caption):
+                    return True
+            except Exception as e:
+                print(f"[REEL] Excepción al subir/publicar (intento {intento + 1}): {e}")
+            if intento == 0:
+                time.sleep(3)
 
-            creation_id = data_init["id"]
-            upload_uri = data_init.get(
-                "uri",
-                f"https://rupload.facebook.com/ig-api-upload/{IG_API_VERSION}/{creation_id}",
-            )
-
-            with open(ruta_mp4, "rb") as f_video:
-                res_up = requests.post(
-                    upload_uri,
-                    headers={
-                        "Authorization": f"OAuth {access_token}",
-                        "offset": "0",
-                        "file_size": str(file_size),
-                    },
-                    data=f_video,
-                    timeout=120,
-                )
-            data_up = res_up.json()
-            if not res_up.ok or data_up.get("success") is False:
-                print(f"[REEL] Error subiendo video: {data_up}")
-                return False
-
-            for _ in range(24):
-                time.sleep(5)
-                res_st = requests.get(
-                    f"https://graph.facebook.com/{IG_API_VERSION}/{creation_id}",
-                    params={"fields": "status_code,status", "access_token": access_token},
-                    timeout=20,
-                )
-                status_data = res_st.json()
-                status_code = status_data.get("status_code")
-
-                if status_code == "FINISHED":
-                    break
-                if status_code in ("ERROR", "EXPIRED"):
-                    print(f"[REEL] Meta rechazó el video: {status_data}")
-                    return False
-            else:
-                print("[REEL] Tiempo agotado esperando procesamiento de Meta.")
-                return False
-
-            res_pub = requests.post(
-                f"https://graph.facebook.com/{IG_API_VERSION}/{ig_user_id}/media_publish",
-                data={
-                    "creation_id": creation_id,
-                    "access_token": access_token,
-                },
-                timeout=30,
-            )
-            data_pub = res_pub.json()
-            if "id" not in data_pub:
-                print(f"[REEL] Error publicando Reel: {data_pub}")
-                return False
-
-            print(f"[REEL] ¡Reel publicado con éxito! ID: {data_pub['id']}")
-            return True
-
-        except Exception as e:
-            print(f"[REEL] Excepción inesperada: {e}")
-            return False
+        return False
     
