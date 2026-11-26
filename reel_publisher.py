@@ -504,4 +504,3 @@ def publicar_reel_en_instagram(oferta: dict) -> bool:
                 time.sleep(3)
 
         return False
-        
