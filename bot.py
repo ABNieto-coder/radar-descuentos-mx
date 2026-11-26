@@ -171,6 +171,12 @@ def limpiar_titulo_para_busqueda(titulo):
     return limpio[:75]
 
 
+def limpiar_titulo_editorial(titulo):
+    limpio = html.unescape((titulo or "").strip())
+    limpio = re.sub(r"(?i)^mercado\s*libre\s*:?\s*", "", limpio).strip()
+    return limpio or "Oferta destacada"
+
+
 def buscar_permalink_ml_api(consulta):
     if not consulta:
         return ""
@@ -334,10 +340,11 @@ def buscar_ofertas_curadas():
 
 
 def construir_link_compartir(titulo, url_afiliado):
+    titulo_limpio = limpiar_titulo_editorial(titulo)
     texto = (
-        f"🔥 ¡Mira esta oferta en Mercado Libre México!\n"
-        f"{titulo}\n\n"
-        f"👉 Más descuentos diarios en {CANAL}"
+        f"Selección de {CANAL}:\n"
+        f"{titulo_limpio}\n\n"
+        f"Enlace: {url_afiliado}"
     )
     return f"https://t.me/share/url?url={quote(url_afiliado)}&text={quote(texto)}"
 
@@ -348,36 +355,35 @@ def publicar_en_telegram(oferta):
     if not url_afiliado or not titulo_crudo:
         return False
 
-    titulo_seguro = escapar_html(titulo_crudo)
-    etiqueta_tipo = "✅ <b>Producto Directo</b>" if oferta.get("tier") == 1 else "🔎 <b>Oferta Destacada</b>"
+    titulo_limpio = limpiar_titulo_editorial(titulo_crudo)
+    titulo_seguro = escapar_html(titulo_limpio)
+    etiqueta_tipo = "SELECCIÓN DIRECTA" if oferta.get("tier") == 1 else "CURADURÍA DEL DÍA"
 
     lineas = [
-        etiqueta_tipo,
-        f"🔥 <b>{titulo_seguro}</b>",
+        f"<code>{etiqueta_tipo}</code>",
+        f"<b>{titulo_seguro}</b>",
         "",
     ]
 
     if oferta.get("precio") or oferta.get("descuento"):
-        detalle = []
         if oferta.get("precio"):
-            detalle.append(f"💰 <b>Precio:</b> {escapar_html(oferta['precio'])}")
+            lineas.append(f"Precio: <b>{escapar_html(oferta['precio'])}</b>")
         if oferta.get("descuento"):
-            detalle.append(f"🏷️ <b>Ahorro:</b> {escapar_html(oferta['descuento'])}")
-        lineas.append("  |  ".join(detalle))
+            lineas.append(f"Beneficio: <b>{escapar_html(oferta['descuento'])}</b>")
         lineas.append("")
 
     lineas.extend([
-        "🛒 <b>Tienda:</b> Mercado Libre México",
-        f"📲 <b>Únete y comparte:</b> {CANAL}",
-        "<i>#OfertasMX #MercadoLibre #Descuentos</i>",
+        "Mercado Libre México  •  Precio accesible",
+        f"Canal: {CANAL}",
+        "<i>Disponibilidad y precio sujetos a cambio.</i>",
     ])
     caption = "\n".join(lineas)
 
-    texto_boton = "🛒 Ver producto en Mercado Libre" if oferta.get("tier") == 1 else "🔎 Ver oferta en Mercado Libre"
+    texto_boton = "Ver producto" if oferta.get("tier") == 1 else "Ver selección"
     botones = {
         "inline_keyboard": [
             [{"text": texto_boton, "url": url_afiliado}],
-            [{"text": "📤 Compartir oferta con un amigo", "url": construir_link_compartir(titulo_crudo, url_afiliado)}],
+            [{"text": "Compartir", "url": construir_link_compartir(titulo_crudo, url_afiliado)}],
         ]
     }
 
