@@ -1,26 +1,22 @@
 import html
 import os
 import re
-import time
 import xml.etree.ElementTree as ET
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse, unquote, quote
 import requests
+
+from reel_publisher import publicar_reel_en_instagram
 
 TOKEN = os.environ["TELEGRAM_TOKEN"]
 CANAL = "@RadarDescuentosMX247"
 MATT_WORD = "charlysource"
 MATT_TOOL = "29165755"
 
-# Credenciales de Instagram (opcionales para no romper Telegram si faltan)
-IG_USER_ID = os.getenv("IG_USER_ID", "")
-IG_ACCESS_TOKEN = os.getenv("IG_ACCESS_TOKEN", "")
-IG_API_VERSION = "v27.0"
-
 ARCHIVO_HISTORIAL = "publicados.txt"
 MAX_LINEAS_HISTORIAL = 2000
 MAX_POSTS_POR_CORRIDA = 5
 MAX_LISTADOS_POR_CORRIDA = 1  # Cambia a 0 si NO quieres publicar ningún listado
-MAX_POSTS_IG_POR_CORRIDA = 2  # Límite por corrida para no saturar el feed de Instagram
+MAX_POSTS_IG_POR_CORRIDA = 2
 
 RSS_URLS = [
     "https://www.promodescuentos.com/rss",
@@ -421,78 +417,6 @@ def publicar_en_telegram(oferta):
         return False
 
 
-def publicar_en_instagram(oferta):
-    """Publica la oferta en Instagram usando Meta Graph API sin detener Telegram si falla."""
-    if not IG_USER_ID or not IG_ACCESS_TOKEN:
-        return False
-
-    imagen_url = oferta.get("imagen", "")
-    if not imagen_url or not imagen_url.startswith("https://"):
-        return False
-
-    # Normalizar si viene como miniatura de ML
-    imagen_url = re.sub(r"-[A-Z]\.(webp|jpg|jpeg)$", "-O.jpg", imagen_url, flags=re.IGNORECASE)
-
-    titulo = html.unescape((oferta.get("titulo") or "").strip())
-    lineas = ["🚨 ¡OFERTA DETECTADA! 🚨", "", f"📦 {titulo}", ""]
-
-    if oferta.get("precio") or oferta.get("descuento"):
-        detalle = []
-        if oferta.get("precio"):
-            detalle.append(f"💰 Precio: {oferta['precio']}")
-        if oferta.get("descuento"):
-            detalle.append(f"🏷️ Ahorro: {oferta['descuento']}")
-        lineas.append(" | ".join(detalle))
-        lineas.append("")
-
-    lineas.extend([
-        "🛒 Tienda: Mercado Libre México",
-        f"🔗 Link directo de compra en el enlace de nuestra bio (Telegram {CANAL}).",
-        "⚠️ Los precios y disponibilidad pueden cambiar en cualquier momento.",
-        "",
-        "#OfertasMexico #DescuentosMX #MercadoLibre #Promociones #RadarDeDescuentosMX",
-    ])
-    caption = "\n".join(lineas)
-
-    try:
-        # Paso 1: Crear contenedor
-        res_media = requests.post(
-            f"https://graph.facebook.com/{IG_API_VERSION}/{IG_USER_ID}/media",
-            data={
-                "image_url": imagen_url,
-                "caption": caption,
-                "access_token": IG_ACCESS_TOKEN,
-            },
-            timeout=30,
-        )
-        data_media = res_media.json()
-        if "id" not in data_media:
-            print(f"[IG] Error creando contenedor: {data_media}")
-            return False
-
-        time.sleep(5)
-
-        # Paso 2: Publicar contenedor
-        res_pub = requests.post(
-            f"https://graph.facebook.com/{IG_API_VERSION}/{IG_USER_ID}/media_publish",
-            data={
-                "creation_id": data_media["id"],
-                "access_token": IG_ACCESS_TOKEN,
-            },
-            timeout=30,
-        )
-        data_pub = res_pub.json()
-        if "id" not in data_pub:
-            print(f"[IG] Error publicando: {data_pub}")
-            return False
-
-        print(f"[IG] Publicado con éxito (ID: {data_pub['id']}): {titulo}")
-        return True
-    except Exception as e:
-        print(f"[IG] Excepción al publicar: {e}")
-        return False
-
-
 def main():
     publicados = cargar_publicados()
     ofertas = buscar_ofertas_curadas()
@@ -523,12 +447,11 @@ def main():
                 listados_enviados += 1
             print(f"Publicado [Tier {oferta['tier']}/{oferta['origen']}]: {oferta['titulo']} -> {oferta['url']}")
 
-            # Publicar en Instagram solo ofertas directas (Tier 1) con imagen y dentro del límite
             if oferta["tier"] == 1 and ig_enviados < MAX_POSTS_IG_POR_CORRIDA:
-                if publicar_en_instagram(oferta):
+                if publicar_reel_en_instagram(oferta):
                     ig_enviados += 1
 
-    print(f"Corrida terminada. Telegram: {enviados} (Listados: {listados_enviados}) | Instagram: {ig_enviados}")
+    print(f"Corrida terminada. Telegram: {enviados} (Listados: {listados_enviados}) | Instagram Reels: {ig_enviados}")
 
 
 if __name__ == "__main__":
