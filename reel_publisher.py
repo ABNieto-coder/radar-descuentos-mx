@@ -243,6 +243,9 @@ def crear_imagen_reel(oferta: dict, ruta_salida: str) -> bool:
     draw = ImageDraw.Draw(canvas)
 
     descuento = (oferta.get("descuento") or "").strip().upper()
+    precio = (oferta.get("precio") or "").strip()
+    titulo = html.unescape((oferta.get("titulo") or "").strip())
+
     texto_badge = f"OFERTA {descuento}" if descuento else "OFERTA DETECTADA"
     draw.rounded_rectangle([120, 120, 960, 225], radius=45, fill=(239, 68, 68))
     f_badge = cargar_fuente(FONT_BOLD_PATHS, 44)
@@ -262,32 +265,22 @@ def crear_imagen_reel(oferta: dict, ruta_salida: str) -> bool:
         canvas.paste(prod_img, (px, py), prod_img)
     else:
         print("[REEL] Fallback visual activado: sin foto real descargable.")
-        f_fb_titulo = cargar_fuente(FONT_BOLD_PATHS, 46)
-        f_fb_sub = cargar_fuente(FONT_REG_PATHS, 34)
-        draw.text(
-            ((card_x1 + card_x2) // 2, card_y1 + 240),
-            "MERCADO LIBRE MX",
-            fill=(15, 23, 42),
-            font=f_fb_titulo,
-            anchor="mm",
-        )
-        draw.text(
-            ((card_x1 + card_x2) // 2, card_y1 + 320),
-            "OFERTA VERIFICADA",
-            fill=(220, 38, 38),
-            font=f_fb_sub,
-            anchor="mm",
-        )
-        if oferta.get("precio"):
-            draw.text(
-                ((card_x1 + card_x2) // 2, card_y1 + 420),
-                str(oferta["precio"]),
-                fill=(22, 163, 74),
-                font=f_fb_titulo,
-                anchor="mm",
-            )
+        centro_x = (card_x1 + card_x2) // 2
+        f_fb_marca = cargar_fuente(FONT_BOLD_PATHS, 42)
+        f_fb_prod = cargar_fuente(FONT_BOLD_PATHS, 44)
+        f_fb_precio = cargar_fuente(FONT_BOLD_PATHS, 56)
 
-    titulo = html.unescape((oferta.get("titulo") or "").strip())
+        draw.text((centro_x, card_y1 + 120), "MERCADO LIBRE MX", fill=(30, 41, 59), font=f_fb_marca, anchor="mm")
+        lineas_fb = textwrap.wrap(titulo, width=24)[:3]
+        y_fb = card_y1 + 240
+        for linea_fb in lineas_fb:
+            draw.text((centro_x, y_fb), linea_fb, fill=(15, 23, 42), font=f_fb_prod, anchor="mm")
+            y_fb += 56
+        if precio:
+            draw.text((centro_x, card_y1 + 520), precio, fill=(22, 163, 74), font=f_fb_precio, anchor="mm")
+        if descuento:
+            draw.text((centro_x, card_y1 + 610), descuento, fill=(220, 38, 38), font=f_fb_marca, anchor="mm")
+
     lineas_titulo = textwrap.wrap(titulo, width=28)[:3]
     f_titulo = cargar_fuente(FONT_BOLD_PATHS, 48)
     y_cursor = 1125
@@ -295,7 +288,6 @@ def crear_imagen_reel(oferta: dict, ruta_salida: str) -> bool:
         draw.text((ancho // 2, y_cursor), linea, fill=(248, 250, 252), font=f_titulo, anchor="mm")
         y_cursor += 60
 
-    precio = (oferta.get("precio") or "").strip()
     if precio:
         draw.rounded_rectangle([180, 1340, 900, 1475], radius=35, fill=(34, 197, 94))
         f_precio = cargar_fuente(FONT_BOLD_PATHS, 72)
@@ -512,4 +504,4 @@ def publicar_reel_en_instagram(oferta: dict) -> bool:
                 time.sleep(3)
 
         return False
-    
+        
