@@ -18,12 +18,12 @@ IG_API_VERSION = "v27.0"
 CANAL_TELEGRAM = "@RadarDescuentosMX247"
 FPS = 30
 
-VOCES_MX = ["es-MX-DaliaNeural", "es-MX-JorgeNeural"]
+VOZ_CHICO_MX = "es-MX-JorgeNeural"
 BUSQUEDAS_MUSICA = [
-    "upbeat corporate background loop",
-    "lofi chill beat loop",
-    "modern tech background music",
-    "happy electronic loop",
+    "upbeat happy background music",
+    "cheerful acoustic upbeat loop",
+    "energetic positive electronic beat",
+    "bright happy indie pop instrumental",
 ]
 
 HEADERS_IMG = {
@@ -182,8 +182,7 @@ async def _sintetizar_voz(texto: str, ruta_salida: str, voz: str):
 
 
 def generar_audio_voz(guion: str, ruta_voz: str) -> float:
-    voz = random.choice(VOCES_MX)
-    asyncio.run(_sintetizar_voz(guion, ruta_voz, voz))
+    asyncio.run(_sintetizar_voz(guion, ruta_voz, VOZ_CHICO_MX))
 
     if not os.path.exists(ruta_voz) or os.path.getsize(ruta_voz) == 0:
         raise RuntimeError("Edge-TTS no generó archivo de audio válido.")
@@ -222,7 +221,7 @@ def descargar_musica_automatica(ruta_musica: str) -> str:
                     if audio_res.ok and len(audio_res.content) > 5000:
                         with open(ruta_musica, "wb") as f:
                             f.write(audio_res.content)
-                        print("[REEL] Música descargada desde Freesound.")
+                        print(f"[REEL] Música alegre descargada desde Freesound ({query}).")
                         return ruta_musica
         except Exception as e:
             print(f"[REEL] Aviso Freesound: {e}")
@@ -309,7 +308,6 @@ def renderizar_video_mp4(ruta_imagen: str, ruta_voz: str, ruta_musica: str, dura
     fade_out_v = max(0.5, round(duracion - 0.45, 2))
     fade_out_a = max(0.5, round(duracion - 0.9, 2))
 
-    # Se escala a mayor resolución antes de zoompan para reducir el redondeo a píxeles enteros
     filtro_video = (
         f"[0:v]scale=2160:3840:flags=lanczos,"
         f"zoompan=z='1.0+0.04*(1-cos(PI*on/{denom}))/2'"
@@ -323,7 +321,7 @@ def renderizar_video_mp4(ruta_imagen: str, ruta_voz: str, ruta_musica: str, dura
     if ruta_musica and os.path.exists(ruta_musica):
         filtro_audio = (
             f"[1:a]adelay=250|250,volume=1.05[voz];"
-            f"[2:a]volume=0.13,afade=t=in:st=0:d=0.4,afade=t=out:st={fade_out_a}:d=0.9[mus];"
+            f"[2:a]volume=0.14,afade=t=in:st=0:d=0.4,afade=t=out:st={fade_out_a}:d=0.9[mus];"
             f"[voz][mus]amix=inputs=2:duration=longest:normalize=0[aout]"
         )
         cmd = [
@@ -506,3 +504,4 @@ def publicar_reel_en_instagram(oferta: dict) -> bool:
                 time.sleep(3)
 
         return False
+                            
