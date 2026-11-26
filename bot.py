@@ -1,5 +1,4 @@
 import html
-import json
 import os
 import re
 import xml.etree.ElementTree as ET
@@ -194,6 +193,42 @@ def formatear_precio_mxn(valor):
         return ""
 
 
+def _normalizar_precio_visible(precio_raw: str) -> str:
+    limpio = (precio_raw or "").strip()
+    if not limpio:
+        return ""
+    fmt = formatear_precio_mxn(re.sub(r"[^\d.]", "", limpio))
+    return fmt or limpio
+
+
+def _imagen_es_valida(url_img: str) -> bool:
+    limpia = normalizar_url(url_img)
+    if not limpia or not limpia.startswith("https://"):
+        return False
+    try:
+        with requests.get(limpia, headers=HEADERS_BROWSER, stream=True, timeout=8) as r:
+            if not r.ok:
+                return False
+            ctype = (r.headers.get("Content-Type") or "").lower()
+            primeros_bytes = b""
+            for chunk in r.iter_content(chunk_size=1024):
+                if chunk:
+                    primeros_bytes += chunk
+                    if len(primeros_bytes) >= 64:
+                        break
+        if len(primeros_bytes) < 32:
+            return False
+        if "image/" in ctype:
+            return True
+        return (
+            primeros_bytes[:3] == b"\xff\xd8\xff"
+            or primeros_bytes[:8] == b"\x89PNG\r\n\x1a\n"
+            or b"WEBP" in primeros_bytes[:16]
+        )
+    except Exception:
+        return False
+
+
 def _extraer_datos_html_ml(url_producto: str) -> dict:
     """Respaldo ligero leyendo metadatos públicos de la ficha de Mercado Libre."""
     datos = {}
@@ -296,6 +331,47 @@ def enriquecer_oferta_con_ml(oferta: dict) -> dict:
             if datos_html.get(campo):
                 oferta[campo] = datos_html[campo]
 
+    return oferta
+
+
+def blindar_datos_oferta(oferta: dict) -> dict:
+    """Enriquece y valida precio e imagen para que Telegram y Reels usen datos consistentes."""
+    oferta = enriquecer_oferta_con_ml(oferta)
+
+    precio_limpio = _normalizar_precio_visible(oferta.get("precio") or "")
+    if precio_limpio:
+        oferta["precio"] = precio_limpio
+
+    imagen_actual = normalizar_url(oferta.get("imagen") or "")
+    if imagen_actual and _imagen_es_valida(imagen_actual):
+        oferta["imagen"] = imagen_actual
+        return oferta
+
+    mlm_id = (oferta.get("mlm_id") or "").strip().upper()
+    if mlm_id:
+        try:
+            resp = requests.get(
+                f"https://api.mercadolibre.com/items/{mlm_id}",
+                headers=HEADERS_API,
+                timeout=8,
+            )
+            if resp.ok and isinstance(resp.json(), dict):
+                data = resp.json()
+                candidatas = []
+                for pic in (data.get("pictures") or []):
+                    if isinstance(pic, dict) and pic.get("secure_url"):
+                        candidatas.append(normalizar_url(pic["secure_url"]))
+                for thumb_key in ("secure_thumbnail", "thumbnail"):
+                    if data.get(thumb_key):
+                        candidatas.append(normalizar_url(data[thumb_key]))
+                for cand in candidatas:
+                    if cand and _imagen_es_valida(cand):
+                        oferta["imagen"] = cand
+                        return oferta
+        except Exception as e:
+            print(f"Aviso validando imagen ML para {mlm_id}: {e}")
+
+    oferta["imagen"] = ""
     return oferta
 
 
@@ -566,7 +642,7 @@ def main():
         if guid in publicados or (mlm_id and mlm_id in publicados):
             continue
 
-        oferta = enriquecer_oferta_con_ml(oferta)
+        oferta = blindar_datos_oferta(oferta)
 
         if publicar_en_telegram(oferta):
             guardar_publicado(guid)
