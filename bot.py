@@ -1,4 +1,3 @@
-
 import html
 import os
 import re
@@ -58,6 +57,20 @@ PALABRAS_CERO_COMISION = (
     "tequila", "vino tinto", "café molido", "cafe molido", "café soluble",
     "leche ", "galletas", "cereal ", "atún", "atun", "aceite comestible",
     "croquetas", "alimento para perro", "alimento para gato", "despensa",
+)
+
+PALABRAS_NICHO_TECH = (
+    "audífonos", "audifonos", "earbuds", "tws", "monitor", "ssd",
+    "disco duro", "teclado", "mouse", "smartwatch", "reloj inteligente",
+    "cargador", "power bank", "bocina", "altavoz", "webcam", "router",
+    "tarjeta gráfica", "tarjeta grafica", "procesador", "laptop", "tablet",
+)
+
+PALABRAS_NICHO_CUIDADO = (
+    "protector solar", "bloqueador solar", "bloqueador", "fps", "spf",
+    "sérum", "serum", "limpiador facial", "gel limpiador", "agua micelar",
+    "crema facial", "contorno de ojos", "ácido hialurónico", "acido hialuronico",
+    "niacinamida", "cuidado facial", "cuidado de la piel", "skincare",
 )
 
 
@@ -243,7 +256,6 @@ def _imagen_es_valida(url_img: str) -> bool:
 
 
 def _extraer_datos_html_ml(url_producto: str) -> dict:
-    """Respaldo ligero leyendo metadatos públicos de la ficha de Mercado Libre."""
     datos = {}
     if not url_producto:
         return datos
@@ -295,7 +307,6 @@ def _extraer_datos_html_ml(url_producto: str) -> dict:
 
 
 def enriquecer_oferta_con_ml(oferta: dict) -> dict:
-    """Sincroniza título, precio actual, descuento e imagen desde Mercado Libre antes de publicar."""
     if oferta.get("tier") != 1:
         return oferta
 
@@ -348,7 +359,6 @@ def enriquecer_oferta_con_ml(oferta: dict) -> dict:
 
 
 def blindar_datos_oferta(oferta: dict) -> dict:
-    """Enriquece y valida título, precio e imagen para que Telegram y Reels usen datos consistentes."""
     oferta["titulo"] = _corregir_cantidad_contradictoria(
         oferta.get("titulo") or "",
         oferta.get("url") or "",
@@ -394,6 +404,15 @@ def blindar_datos_oferta(oferta: dict) -> dict:
 
     oferta["imagen"] = ""
     return oferta
+
+
+def detectar_nicho_oferta(titulo: str, url: str = "") -> str:
+    texto = f"{titulo or ''} {url or ''}".lower()
+    if any(p in texto for p in PALABRAS_NICHO_CUIDADO):
+        return "cuidado_personal"
+    if any(p in texto for p in PALABRAS_NICHO_TECH):
+        return "tecnologia"
+    return "general"
 
 
 def buscar_permalink_ml_api(consulta):
@@ -667,6 +686,8 @@ def main():
             continue
 
         oferta = blindar_datos_oferta(oferta)
+        nicho = detectar_nicho_oferta(oferta.get("titulo") or "", oferta.get("url") or "")
+        oferta["nicho"] = nicho
 
         if publicar_en_telegram(oferta):
             guardar_publicado(guid)
@@ -677,7 +698,7 @@ def main():
             enviados += 1
             if oferta["tier"] == 2:
                 listados_enviados += 1
-            print(f"Publicado [Tier {oferta['tier']}/{oferta['origen']}]: {oferta['titulo']} ({oferta.get('precio', '')}) -> {oferta['url']}")
+            print(f"Publicado [Tier {oferta['tier']}/{oferta['origen']}/{nicho}]: {oferta['titulo']} ({oferta.get('precio', '')}) -> {oferta['url']}")
 
             if oferta["tier"] == 1 and ig_enviados < MAX_POSTS_IG_POR_CORRIDA:
                 if publicar_reel_en_instagram(oferta):
