@@ -1,4 +1,3 @@
-
 import asyncio
 import glob
 import html
@@ -244,7 +243,6 @@ def descargar_musica_automatica(ruta_musica: str) -> str:
 
 
 def _crear_fondo_estetico(ancho: int, alto: int) -> Image.Image:
-    """Crea un fondo editorial oscuro limpio con iluminación sutil."""
     base = Image.new("RGB", (ancho, alto), (11, 15, 23))
     draw = ImageDraw.Draw(base)
 
@@ -268,7 +266,6 @@ def _crear_fondo_estetico(ancho: int, alto: int) -> Image.Image:
 
 
 def _quitar_borde_blanco_suave(img: Image.Image) -> Image.Image:
-    """Recorta márgenes blancos excesivos alrededor de fotos de catálogo para dar más presencia."""
     rgba = img.convert("RGBA")
     rgb = rgba.convert("RGB")
     w, h = rgb.size
@@ -307,7 +304,6 @@ def _quitar_borde_blanco_suave(img: Image.Image) -> Image.Image:
 
 
 def crear_imagen_reel(oferta: dict, ruta_salida: str) -> bool:
-    """Genera un cuadro 1080x1920 con estética editorial limpia y acentos sobrios."""
     ancho, alto = 1080, 1920
     canvas = _crear_fondo_estetico(ancho, alto)
     draw = ImageDraw.Draw(canvas)
@@ -316,7 +312,6 @@ def crear_imagen_reel(oferta: dict, ruta_salida: str) -> bool:
     precio = (oferta.get("precio") or "").strip()
     titulo = limpiar_titulo_visual(oferta.get("titulo") or "")
 
-    # Encabezado minimalista estilo editorial
     f_marca = cargar_fuente(FONT_BOLD_PATHS, 26)
     draw.text((ancho // 2, 118), ">_ RADAR DE DESCUENTOS MX", fill=(148, 163, 184), font=f_marca, anchor="mm")
 
@@ -325,7 +320,6 @@ def crear_imagen_reel(oferta: dict, ruta_salida: str) -> bool:
     f_badge = cargar_fuente(FONT_BOLD_PATHS, 32)
     draw.text((ancho // 2, 192), etiqueta[:24], fill=(0, 255, 65), font=f_badge, anchor="mm")
 
-    # Tarjeta central de producto con borde fino y aire visual
     card_x1, card_y1, card_x2, card_y2 = 120, 275, 960, 1020
     sombra = Image.new("RGBA", (ancho, alto), (0, 0, 0, 0))
     sdraw = ImageDraw.Draw(sombra)
@@ -376,7 +370,6 @@ def crear_imagen_reel(oferta: dict, ruta_salida: str) -> bool:
             anchor="mm",
         )
 
-    # Título limpio del producto
     lineas_titulo = textwrap.wrap(titulo, width=28)[:3]
     f_titulo = cargar_fuente(FONT_BOLD_PATHS, 46)
     y_cursor = 1095
@@ -384,7 +377,6 @@ def crear_imagen_reel(oferta: dict, ruta_salida: str) -> bool:
         draw.text((ancho // 2, y_cursor), linea, fill=(248, 250, 252), font=f_titulo, anchor="mm")
         y_cursor += 56
 
-    # Precio en formato limpio y sobrio
     if precio:
         draw.rounded_rectangle(
             [230, 1310, 850, 1435],
@@ -396,7 +388,6 @@ def crear_imagen_reel(oferta: dict, ruta_salida: str) -> bool:
         f_precio = cargar_fuente(FONT_BOLD_PATHS, 68)
         draw.text((ancho // 2, 1372), precio, fill=(255, 255, 255), font=f_precio, anchor="mm")
 
-    # Llamado a acción limpio en zona segura inferior
     f_cta = cargar_fuente(FONT_BOLD_PATHS, 34)
     f_sub = cargar_fuente(FONT_REG_PATHS, 30)
     draw.text((ancho // 2, 1510), "LINK EN BIO  •  GUARDA ESTE REEL", fill=(248, 250, 252), font=f_cta, anchor="mm")
@@ -541,4 +532,71 @@ def _subir_y_publicar_reel(ig_user_id: str, access_token: str, ruta_mp4: str, ca
             params={"fields": "status_code,status", "access_token": access_token},
             timeout=20,
         )
-        status_data = res_
+        status_data = res_st.json()
+        status_code = status_data.get("status_code")
+
+        if status_code == "FINISHED":
+            break
+        if status_code in ("ERROR", "EXPIRED"):
+            print(f"[REEL] Meta rechazó el video: {status_data}")
+            return False
+    else:
+        print("[REEL] Tiempo agotado esperando procesamiento de Meta.")
+        return False
+
+    res_pub = requests.post(
+        f"https://graph.facebook.com/{IG_API_VERSION}/{ig_user_id}/media_publish",
+        data={
+            "creation_id": creation_id,
+            "access_token": access_token,
+        },
+        timeout=30,
+    )
+    data_pub = res_pub.json()
+    if "id" not in data_pub:
+        print(f"[REEL] Error publicando Reel: {data_pub}")
+        return False
+
+    print(f"[REEL] ¡Reel publicado con éxito! ID: {data_pub['id']}")
+    return True
+
+
+def publicar_reel_en_instagram(oferta: dict) -> bool:
+    ig_user_id = os.getenv("IG_USER_ID", "")
+    access_token = os.getenv("IG_ACCESS_TOKEN", "")
+    if not ig_user_id or not access_token:
+        return False
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        ruta_img = os.path.join(tmpdir, "frame.png")
+        ruta_voz = os.path.join(tmpdir, "voz.mp3")
+        ruta_mus = os.path.join(tmpdir, "musica.mp3")
+        ruta_mp4 = os.path.join(tmpdir, "reel.mp4")
+
+        if not crear_imagen_reel(oferta, ruta_img):
+            return False
+
+        try:
+            guion = generar_guion_voz(oferta)
+            duracion_voz = generar_audio_voz(guion, ruta_voz)
+        except Exception as e:
+            print(f"[REEL] Error generando voz: {e}")
+            return False
+
+        musica_lista = descargar_musica_automatica(ruta_mus)
+
+        if not renderizar_video_mp4(ruta_img, ruta_voz, musica_lista, duracion_voz, ruta_mp4):
+            return False
+
+        caption = armar_caption_reel(oferta)
+
+        for intento in range(2):
+            try:
+                if _subir_y_publicar_reel(ig_user_id, access_token, ruta_mp4, caption):
+                    return True
+            except Exception as e:
+                print(f"[REEL] Excepción al subir/publicar (intento {intento + 1}): {e}")
+            if intento == 0:
+                time.sleep(3)
+
+        return False
