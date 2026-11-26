@@ -46,6 +46,18 @@ FONT_REG_PATHS = [
     "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
 ]
 
+# Aperturas que no aportan nada: saludos, presentaciones y frases de relleno.
+PATRON_APERTURA_DEBIL = re.compile(
+    r"^\s*(hola|hey|oye|mira|amigos|chicos|bienvenid\w*|hoy te|en este video|en este reel|"
+    r"no te pierdas|atenci[oó]n|prep[aá]rate)\b",
+    flags=re.IGNORECASE,
+)
+# Palabras de hype que van contra el tono sobrio del canal.
+PATRON_EXAGERADO = re.compile(
+    r"\b(incre[ií]ble|imperdible|locura|brutal|espectacular|alucinante)\b",
+    flags=re.IGNORECASE,
+)
+
 
 def cargar_fuente(rutas, tamano):
     for ruta in rutas:
@@ -146,10 +158,31 @@ def descargar_imagen_producto(oferta: dict) -> Image.Image | None:
     return None
 
 
+def _precio_a_voz(match: re.Match) -> str:
+    """Convierte '$1,299.50' en '1299 pesos con 50' para que la voz lo lea bien."""
+    entero = match.group(1).replace(",", "")
+    decimales = match.group(2)
+    if decimales and int(decimales) != 0:
+        return f"{entero} pesos con {decimales}"
+    return f"{entero} pesos"
+
+
+def _normalizar_descuento(descuento: str) -> str:
+    """Reduce '25% OFF', '25 %' o '25% de descuento' a '25%'. Devuelve '' si no hay número válido."""
+    match = re.search(r"(\d{1,2})", descuento or "")
+    if not match:
+        return ""
+    numero = int(match.group(1))
+    if not 1 <= numero <= 95:
+        return ""
+    return f"{numero}%"
+
+
 def limpiar_texto_para_voz(texto: str) -> str:
     limpio = html.unescape(texto or "")
     limpio = _quitar_palabra_prohibida(limpio)
     limpio = re.sub(r"https?://\S+", "", limpio)
+    limpio = re.sub(r"\$\s*(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d{1,2}))?", _precio_a_voz, limpio)
     limpio = limpio.replace("$", " pesos ")
     limpio = limpio.replace("%", " por ciento ")
     limpio = re.sub(r"[^\w\sáéíóúüñÁÉÍÓÚÜÑ.,!?-]", " ", limpio)
@@ -159,41 +192,52 @@ def limpiar_texto_para_voz(texto: str) -> str:
 
 
 def _construir_hook_respaldo(titulo: str, precio: str, descuento: str, nicho: str = "general") -> str:
-    producto_limpio = _recortar_en_palabra(titulo, max_chars=44)
+    """Guion de respaldo: gancho con el dato concreto en la primera frase,
+    una sola invitación al final y eco del precio o del descuento para cerrar."""
+    producto = _recortar_en_palabra(titulo, max_chars=36)
+    pct = _normalizar_descuento(descuento)
     if nicho == "tecnologia":
-        plantillas = [
-            f"Dato de tecnología en Mercado Libre: {producto_limpio}"
-            + (f" a {precio}." if precio else ".")
-            + " Revisa el enlace en la bio y guárdalo.",
-            f"Si buscas equipo o accesorio tech sin gastar de más, en Mercado Libre está {producto_limpio}"
-            + (f" a {precio}." if precio else ".")
-            + " Míralo en la bio.",
-        ]
+        contexto = "Tecnología en Mercado Libre."
     elif nicho == "cuidado_personal":
-        plantillas = [
-            f"Cuidado personal en Mercado Libre: {producto_limpio}"
-            + (f" a {precio}." if precio else ".")
-            + " Revisa el enlace en la bio y guárdalo.",
-            f"Buen precio en Mercado Libre para {producto_limpio}"
-            + (f" a {precio}." if precio else ".")
-            + " Guárdalo y revísalo en la bio con calma.",
-        ]
+        contexto = "Cuidado personal en Mercado Libre."
     else:
-        plantillas = [
-            f"Precio accesible en Mercado Libre: {producto_limpio}"
-            + (f" a {precio}." if precio else ".")
-            + " Revisa el enlace en la bio y guárdalo.",
-            f"Si buscas {producto_limpio} sin gastar de más, en Mercado Libre está"
-            + (f" a {precio}." if precio else " a buen precio.")
-            + " Revísalo en la bio con calma.",
-        ]
+        contexto = "Disponible en Mercado Libre."
+
+    plantillas = []
+    if precio:
+        plantillas.append(f"{producto} a {precio}. {contexto} Confirma los {precio} en el enlace de la bio.")
+        plantillas.append(f"{producto} por {precio} en Mercado Libre. Confirma los {precio} en la bio.")
+    if pct:
+        plantillas.append(
+            f"{producto} con {pct} de descuento. {contexto} Confirma el descuento en el enlace de la bio."
+        )
+    if not plantillas:
+        plantillas.append(f"{producto}, con buen precio en Mercado Libre. Mira el precio en el enlace de la bio.")
+
     return limpiar_texto_para_voz(random.choice(plantillas))
+
+
+def _guion_cumple_reglas(guion: str, precio: str, descuento: str) -> bool:
+    """Filtro de ganchos débiles: descarta saludos, hype y ganchos largos o sin dato concreto."""
+    if not guion:
+        return False
+    if PATRON_APERTURA_DEBIL.search(guion):
+        return False
+    if PATRON_EXAGERADO.search(guion):
+        return False
+    primera = re.split(r"[.!?]", guion, maxsplit=1)[0].strip()
+    if not primera or len(primera.split()) > 12:
+        return False
+    if (precio or _normalizar_descuento(descuento)) and not re.search(r"\d", primera):
+        return False
+    return True
 
 
 def generar_guion_voz(oferta: dict) -> str:
     titulo = limpiar_titulo_visual(oferta.get("titulo") or "")
     precio = (oferta.get("precio") or "").strip()
     descuento = (oferta.get("descuento") or "").strip()
+    pct = _normalizar_descuento(descuento)
     nicho = (oferta.get("nicho") or "general").strip().lower()
     respaldo = _construir_hook_respaldo(titulo, precio, descuento, nicho)
 
@@ -203,37 +247,48 @@ def generar_guion_voz(oferta: dict) -> str:
         return respaldo
 
     prompt = (
-        "Escribe un guion corto de 14 a 18 palabras en español natural de México para un video vertical "
-        "sobre una oferta de precio accesible en Mercado Libre. "
-        "El tono debe ser seguro, sobrio, confiable y de buen gusto (nunca gritado ni exagerado). "
-        "Empieza en el segundo 0 con un gancho claro que destaque el valor del producto a bajo precio "
-        "y mencione Mercado Libre de forma natural. Termina invitando a ver el enlace de la bio y guardar el video. "
-        "No cortes nombres a medias y no uses la palabra corre ni curaduría. "
+        "Escribe el guion de voz de un Reel vertical sobre una oferta de Mercado Libre, en español natural "
+        "de México, de 3 a 4 frases cortas y entre 16 y 22 palabras en total.\n"
+        "Reglas:\n"
+        "1. La PRIMERA frase es el gancho: máximo 8 palabras, se dice en menos de 3 segundos. "
+        "Debe incluir el precio exacto (o el descuento si no hay precio) tal como aparece abajo, "
+        "junto con qué es el producto. Si no hay precio ni descuento, abre con el beneficio concreto del producto.\n"
+        "2. Sin saludos ni presentaciones. Nada de 'en este video', 'hoy te traigo' ni 'mira esto'.\n"
+        "3. Tono seguro, sobrio y confiable. Nada de exagerar: sin 'increíble', 'imperdible' ni 'locura'.\n"
+        "4. Usa solo los datos dados abajo. No inventes cifras, marcas, características ni fechas.\n"
+        "5. La última frase invita a una sola cosa: ver el enlace de la bio. "
+        "Además repite una palabra clave del gancho (el producto o el precio) para cerrar el ciclo.\n"
+        "6. No cortes nombres a medias.\n"
         "Devuelve solo el texto a locutar, sin emojis, sin asteriscos y sin comillas.\n"
         f"Nicho: {nicho}\n"
         f"Producto: {titulo}\n"
         f"Precio: {precio or 'no especificado'}\n"
-        f"Descuento: {descuento or 'no especificado'}"
+        f"Descuento: {pct or 'no especificado'}"
     )
 
-    try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
-        res = requests.post(
-            url,
-            json={"contents": [{"parts": [{"text": prompt}]}]},
-            timeout=15,
-        )
-        if res.ok:
-            candidatos = res.json().get("candidates") or []
-            if candidatos:
-                partes = candidatos[0].get("content", {}).get("parts") or []
-                if partes and partes[0].get("text"):
-                    limpio = limpiar_texto_para_voz(partes[0]["text"])
-                    if 20 <= len(limpio) <= 210:
-                        print(f"[REEL] Guion voz (Gemini/{nicho}): {limpio}")
-                        return limpio
-    except Exception as e:
-        print(f"[REEL] Aviso Gemini (usando respaldo): {e}")
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+    for intento in range(2):
+        try:
+            res = requests.post(
+                url,
+                json={
+                    "contents": [{"parts": [{"text": prompt}]}],
+                    "generationConfig": {"temperature": 0.8},
+                },
+                timeout=15,
+            )
+            if res.ok:
+                candidatos = res.json().get("candidates") or []
+                if candidatos:
+                    partes = candidatos[0].get("content", {}).get("parts") or []
+                    if partes and partes[0].get("text"):
+                        limpio = limpiar_texto_para_voz(partes[0]["text"])
+                        if 20 <= len(limpio) <= 240 and _guion_cumple_reglas(limpio, precio, descuento):
+                            print(f"[REEL] Guion voz (Gemini/{nicho}): {limpio}")
+                            return limpio
+                        print(f"[REEL] Guion de Gemini descartado por reglas (intento {intento + 1}): {limpio}")
+        except Exception as e:
+            print(f"[REEL] Aviso Gemini (intento {intento + 1}): {e}")
 
     print(f"[REEL] Guion voz (respaldo/{nicho}): {respaldo}")
     return respaldo
@@ -552,33 +607,39 @@ def renderizar_video_mp4(ruta_imagen: str, ruta_voz: str, ruta_musica: str, dura
 
 
 def armar_caption_reel(oferta: dict) -> str:
+    """Caption con el dato concreto en la primera línea (lo único que se ve antes de '... más'),
+    una sola invitación (el enlace de la bio) y máximo 5 hashtags."""
     titulo = limpiar_titulo_visual(oferta.get("titulo") or "")
+    precio = (oferta.get("precio") or "").strip()
+    descuento = (oferta.get("descuento") or "").strip()
     nicho = (oferta.get("nicho") or "general").strip().lower()
     etiqueta_nicho = {
         "tecnologia": "Tecnología en Mercado Libre",
         "cuidado_personal": "Cuidado personal en Mercado Libre",
     }.get(nicho, "Precio accesible en Mercado Libre")
 
-    lineas = [f"{etiqueta_nicho} — {titulo}", ""]
+    if precio:
+        primera = f"{precio} | {_recortar_en_palabra(titulo, 80)}"
+    else:
+        primera = _recortar_en_palabra(titulo, 110)
 
-    detalle = []
-    if oferta.get("precio"):
-        detalle.append(f"Precio: {oferta['precio']}")
-    if oferta.get("descuento"):
-        detalle.append(f"Ahorro: {oferta['descuento']}")
-    if detalle:
-        lineas.append(" | ".join(detalle))
-        lineas.append("")
+    segunda = etiqueta_nicho
+    if descuento:
+        segunda += f" | Ahorro: {descuento}"
 
-    lineas.extend([
+    lineas = [
+        primera,
+        segunda,
+        "",
         "Tienda: Mercado Libre México",
-        f"Enlace en la bio y más opciones en Telegram ({CANAL_TELEGRAM}).",
-        "Guarda este Reel para consultarlo después.",
+        "Enlace en la bio.",
+        f"Más ofertas en Telegram: {CANAL_TELEGRAM}",
         "Precios y disponibilidad sujetos a cambios.",
         "",
         "#MercadoLibre #OfertasMexico #DescuentosMX #ComprasInteligentes #RadarDeDescuentosMX",
-    ])
-    return _quitar_palabra_prohibida("\n".join(lineas))
+    ]
+    # Se limpia línea por línea para conservar los saltos de línea del caption.
+    return "\n".join(_quitar_palabra_prohibida(linea) for linea in lineas)
 
 
 def _subir_y_publicar_reel(ig_user_id: str, access_token: str, ruta_mp4: str, caption: str) -> bool:
