@@ -1,3 +1,4 @@
+
 import asyncio
 import glob
 import html
@@ -243,13 +244,12 @@ def descargar_musica_automatica(ruta_musica: str) -> str:
 
 
 def _crear_fondo_estetico(ancho: int, alto: int) -> Image.Image:
-    """Crea un fondo degradado oscuro moderno con destellos suaves de color."""
-    base = Image.new("RGB", (ancho, alto), (9, 13, 22))
+    """Crea un fondo editorial oscuro limpio con iluminación sutil."""
+    base = Image.new("RGB", (ancho, alto), (11, 15, 23))
     draw = ImageDraw.Draw(base)
 
-    # Gradiente vertical sutil
-    top_rgb = (10, 15, 28)
-    bot_rgb = (18, 27, 46)
+    top_rgb = (11, 15, 23)
+    bot_rgb = (18, 24, 38)
     for y in range(alto):
         t = y / max(1, alto - 1)
         r = int(top_rgb[0] + (bot_rgb[0] - top_rgb[0]) * t)
@@ -257,12 +257,11 @@ def _crear_fondo_estetico(ancho: int, alto: int) -> Image.Image:
         b = int(top_rgb[2] + (bot_rgb[2] - top_rgb[2]) * t)
         draw.line([(0, y), (ancho, y)], fill=(r, g, b))
 
-    # Destellos suaves difuminados
     glow = Image.new("RGBA", (ancho, alto), (0, 0, 0, 0))
     gdraw = ImageDraw.Draw(glow)
-    gdraw.ellipse([-180, 140, 620, 940], fill=(37, 99, 235, 48))
-    gdraw.ellipse([480, 950, 1280, 1750], fill=(16, 185, 129, 36))
-    glow = glow.filter(ImageFilter.GaussianBlur(140))
+    gdraw.ellipse([-140, 220, 560, 920], fill=(0, 255, 65, 22))
+    gdraw.ellipse([520, 980, 1220, 1680], fill=(56, 189, 248, 28))
+    glow = glow.filter(ImageFilter.GaussianBlur(150))
 
     compuesta = Image.alpha_composite(base.convert("RGBA"), glow)
     return compuesta.convert("RGB")
@@ -275,13 +274,11 @@ def _quitar_borde_blanco_suave(img: Image.Image) -> Image.Image:
     w, h = rgb.size
     px = rgb.load()
 
-    # Muestrea esquinas para detectar si el fondo del producto es blanco/muy claro
     esquinas = [px[0, 0], px[w - 1, 0], px[0, h - 1], px[w - 1, h - 1]]
     esquinas_claras = sum(1 for r, g, b in esquinas if r > 242 and g > 242 and b > 242)
     if esquinas_claras < 3:
         return rgba
 
-    # Encuentra bounding box de píxeles no blancos
     left, top, right, bottom = w, h, 0, 0
     for y in range(0, h, 2):
         for x in range(0, w, 2):
@@ -310,6 +307,7 @@ def _quitar_borde_blanco_suave(img: Image.Image) -> Image.Image:
 
 
 def crear_imagen_reel(oferta: dict, ruta_salida: str) -> bool:
+    """Genera un cuadro 1080x1920 con estética editorial limpia y acentos sobrios."""
     ancho, alto = 1080, 1920
     canvas = _crear_fondo_estetico(ancho, alto)
     draw = ImageDraw.Draw(canvas)
@@ -318,38 +316,37 @@ def crear_imagen_reel(oferta: dict, ruta_salida: str) -> bool:
     precio = (oferta.get("precio") or "").strip()
     titulo = limpiar_titulo_visual(oferta.get("titulo") or "")
 
-    # Encabezado superior limpio
-    f_marca = cargar_fuente(FONT_BOLD_PATHS, 28)
-    draw.text((ancho // 2, 118), "RADAR DE DESCUENTOS MX", fill=(148, 163, 184), font=f_marca, anchor="mm")
+    # Encabezado minimalista estilo editorial
+    f_marca = cargar_fuente(FONT_BOLD_PATHS, 26)
+    draw.text((ancho // 2, 118), ">_ RADAR DE DESCUENTOS MX", fill=(148, 163, 184), font=f_marca, anchor="mm")
 
-    badge_texto = f"AHORRA {descuento}" if descuento else "OFERTA DEL DÍA"
-    badge_color = (225, 29, 72) if descuento else (234, 88, 12)
-    draw.rounded_rectangle([250, 158, 830, 232], radius=37, fill=badge_color)
-    f_badge = cargar_fuente(FONT_BOLD_PATHS, 36)
-    draw.text((ancho // 2, 195), badge_texto[:24], fill=(255, 255, 255), font=f_badge, anchor="mm")
+    etiqueta = f"AHORRA {descuento}" if descuento else "PRECIO TOP"
+    draw.rounded_rectangle([290, 160, 790, 224], radius=32, fill=(24, 32, 48), outline=(0, 255, 65), width=2)
+    f_badge = cargar_fuente(FONT_BOLD_PATHS, 32)
+    draw.text((ancho // 2, 192), etiqueta[:24], fill=(0, 255, 65), font=f_badge, anchor="mm")
 
-    # Sombra suave y tarjeta central de producto
-    card_x1, card_y1, card_x2, card_y2 = 115, 275, 965, 1035
+    # Tarjeta central de producto con borde fino y aire visual
+    card_x1, card_y1, card_x2, card_y2 = 120, 275, 960, 1020
     sombra = Image.new("RGBA", (ancho, alto), (0, 0, 0, 0))
     sdraw = ImageDraw.Draw(sombra)
-    sdraw.rounded_rectangle([card_x1 + 6, card_y1 + 12, card_x2 + 6, card_y2 + 12], radius=44, fill=(0, 0, 0, 115))
-    sombra = sombra.filter(ImageFilter.GaussianBlur(18))
+    sdraw.rounded_rectangle([card_x1 + 4, card_y1 + 10, card_x2 + 4, card_y2 + 10], radius=40, fill=(0, 0, 0, 120))
+    sombra = sombra.filter(ImageFilter.GaussianBlur(16))
     canvas = Image.alpha_composite(canvas.convert("RGBA"), sombra).convert("RGB")
     draw = ImageDraw.Draw(canvas)
 
     draw.rounded_rectangle(
         [card_x1, card_y1, card_x2, card_y2],
-        radius=44,
+        radius=40,
         fill=(255, 255, 255),
-        outline=(226, 232, 240),
-        width=3,
+        outline=(51, 65, 85),
+        width=2,
     )
 
     prod_img = descargar_imagen_producto(oferta)
     if prod_img is not None:
         limpia_img = _quitar_borde_blanco_suave(prod_img)
-        max_w = (card_x2 - card_x1) - 70
-        max_h = (card_y2 - card_y1) - 70
+        max_w = (card_x2 - card_x1) - 76
+        max_h = (card_y2 - card_y1) - 76
         limpia_img.thumbnail((max_w, max_h), Image.Resampling.LANCZOS)
 
         px = card_x1 + ((card_x2 - card_x1) - limpia_img.width) // 2
@@ -358,46 +355,52 @@ def crear_imagen_reel(oferta: dict, ruta_salida: str) -> bool:
     else:
         print("[REEL] Fallback visual activado: sin foto real descargable.")
         centro_x = (card_x1 + card_x2) // 2
-        f_tag = cargar_fuente(FONT_BOLD_PATHS, 30)
-        f_fb_tit = cargar_fuente(FONT_BOLD_PATHS, 46)
-        f_fb_nota = cargar_fuente(FONT_REG_PATHS, 30)
+        f_tag = cargar_fuente(FONT_BOLD_PATHS, 28)
+        f_fb_tit = cargar_fuente(FONT_BOLD_PATHS, 44)
+        f_fb_nota = cargar_fuente(FONT_REG_PATHS, 28)
 
-        draw.rounded_rectangle([centro_x - 170, card_y1 + 95, centro_x + 170, card_y1 + 150], radius=27, fill=(241, 245, 249))
-        draw.text((centro_x, card_y1 + 122), "MERCADO LIBRE MX", fill=(30, 41, 59), font=f_tag, anchor="mm")
+        draw.rounded_rectangle([centro_x - 160, card_y1 + 95, centro_x + 160, card_y1 + 145], radius=25, fill=(241, 245, 249))
+        draw.text((centro_x, card_y1 + 120), "MERCADO LIBRE MX", fill=(15, 23, 42), font=f_tag, anchor="mm")
 
         lineas_fb = textwrap.wrap(titulo, width=23)[:3]
         y_fb = card_y1 + 250
         for linea_fb in lineas_fb:
             draw.text((centro_x, y_fb), linea_fb, fill=(15, 23, 42), font=f_fb_tit, anchor="mm")
-            y_fb += 60
+            y_fb += 58
 
         draw.text(
-            (centro_x, card_y2 - 115),
-            "Toca el enlace en la bio para ver detalles",
+            (centro_x, card_y2 - 110),
+            "Enlace directo disponible en la bio",
             fill=(100, 116, 139),
             font=f_fb_nota,
             anchor="mm",
         )
 
-    # Título limpio del producto (sin duplicar en fallback)
+    # Título limpio del producto
     lineas_titulo = textwrap.wrap(titulo, width=28)[:3]
-    f_titulo = cargar_fuente(FONT_BOLD_PATHS, 48)
-    y_cursor = 1105
+    f_titulo = cargar_fuente(FONT_BOLD_PATHS, 46)
+    y_cursor = 1095
     for linea in lineas_titulo:
         draw.text((ancho // 2, y_cursor), linea, fill=(248, 250, 252), font=f_titulo, anchor="mm")
-        y_cursor += 58
+        y_cursor += 56
 
-    # Pastilla de precio limpia
+    # Precio en formato limpio y sobrio
     if precio:
-        draw.rounded_rectangle([205, 1320, 875, 1450], radius=36, fill=(16, 185, 129))
-        f_precio = cargar_fuente(FONT_BOLD_PATHS, 70)
-        draw.text((ancho // 2, 1385), precio, fill=(255, 255, 255), font=f_precio, anchor="mm")
+        draw.rounded_rectangle(
+            [230, 1310, 850, 1435],
+            radius=32,
+            fill=(20, 30, 48),
+            outline=(16, 185, 129),
+            width=3,
+        )
+        f_precio = cargar_fuente(FONT_BOLD_PATHS, 68)
+        draw.text((ancho // 2, 1372), precio, fill=(255, 255, 255), font=f_precio, anchor="mm")
 
-    # Llamado a acción en zona segura inferior
-    f_cta = cargar_fuente(FONT_BOLD_PATHS, 36)
+    # Llamado a acción limpio en zona segura inferior
+    f_cta = cargar_fuente(FONT_BOLD_PATHS, 34)
     f_sub = cargar_fuente(FONT_REG_PATHS, 30)
-    draw.text((ancho // 2, 1525), "LINK EN LA BIO  •  GUARDA EL REEL", fill=(250, 204, 21), font=f_cta, anchor="mm")
-    draw.text((ancho // 2, 1580), f"Telegram: {CANAL_TELEGRAM}", fill=(148, 163, 184), font=f_sub, anchor="mm")
+    draw.text((ancho // 2, 1510), "LINK EN BIO  •  GUARDA ESTE REEL", fill=(248, 250, 252), font=f_cta, anchor="mm")
+    draw.text((ancho // 2, 1565), f"Telegram {CANAL_TELEGRAM}", fill=(148, 163, 184), font=f_sub, anchor="mm")
 
     canvas.save(ruta_salida, format="PNG")
     return True
@@ -536,4 +539,6 @@ def _subir_y_publicar_reel(ig_user_id: str, access_token: str, ruta_mp4: str, ca
         res_st = requests.get(
             f"https://graph.facebook.com/{IG_API_VERSION}/{creation_id}",
             params={"fields": "status_code,status", "access_token": access_token},
- 
+            timeout=20,
+        )
+        status_data = res_
