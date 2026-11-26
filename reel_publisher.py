@@ -54,10 +54,16 @@ def cargar_fuente(rutas, tamano):
     return ImageFont.load_default()
 
 
+def _quitar_palabra_prohibida(texto: str) -> str:
+    limpio = re.sub(r"\bcuradur[íi]a\b", "selección", texto or "", flags=re.IGNORECASE)
+    return re.sub(r"\s+", " ", limpio).strip()
+
+
 def limpiar_titulo_visual(titulo: str) -> str:
     limpio = html.unescape((titulo or "").strip())
     limpio = re.sub(r"^\s*\d+\s*°\s*[-–—:]?\s*", "", limpio)
     limpio = re.sub(r"(?i)^mercado\s*libre\s*:?\s*", "", limpio)
+    limpio = _quitar_palabra_prohibida(limpio)
     limpio = re.sub(r"\s+", " ", limpio).strip()
     return limpio or "Selección destacada"
 
@@ -129,34 +135,49 @@ def descargar_imagen_producto(oferta: dict) -> Image.Image | None:
 
 def limpiar_texto_para_voz(texto: str) -> str:
     limpio = html.unescape(texto or "")
+    limpio = _quitar_palabra_prohibida(limpio)
     limpio = re.sub(r"https?://\S+", "", limpio)
     limpio = limpio.replace("$", " pesos ")
     limpio = limpio.replace("%", " por ciento ")
+    limpio = re.sub(r"[^\w\sáéíóúüñÁÉÍÓÚÜÑ.,!?-]", " ", limpio)
     limpio = re.sub(r"[*_#~`\"“”‘’\[\]<>|]+", " ", limpio)
     limpio = re.sub(r"\s+", " ", limpio).strip()
     return limpio
+
+
+def _construir_hook_respaldo(titulo: str, precio: str, descuento: str) -> str:
+    producto_corto = titulo[:52].strip()
+    plantillas = [
+        f"Precio accesible en Mercado Libre: {producto_corto}"
+        + (f" a {precio}." if precio else ".")
+        + " Vale la pena revisarlo en el enlace de la bio.",
+        f"Buen precio en Mercado Libre para {producto_corto}"
+        + (f", con {descuento}" if descuento else "")
+        + (f" y queda en {precio}." if precio else ".")
+        + " Guárdalo y mira los detalles en la bio.",
+        f"Si buscas {producto_corto} sin gastar de más, en Mercado Libre está"
+        + (f" a {precio}." if precio else " a buen precio.")
+        + " Revísalo en la bio antes de que cambie.",
+    ]
+    return limpiar_texto_para_voz(random.choice(plantillas))
 
 
 def generar_guion_voz(oferta: dict) -> str:
     titulo = limpiar_titulo_visual(oferta.get("titulo") or "")
     precio = (oferta.get("precio") or "").strip()
     descuento = (oferta.get("descuento") or "").strip()
-
-    gancho = f"¡Ojo a este hallazgo en {titulo[:55]}!"
-    if descuento:
-        gancho = f"¡{descuento} en {titulo[:50]}!"
-    respaldo = limpiar_texto_para_voz(
-        f"{gancho} {f'Queda en {precio}. ' if precio else ''}Corre al enlace de la bio y guárdalo."
-    )
+    respaldo = _construir_hook_respaldo(titulo, precio, descuento)
 
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key:
         return respaldo
 
     prompt = (
-        "Escribe un guion corto de 18 a 24 palabras en español de México para un Reel de ofertas. "
-        "Arranca en el segundo 0 con un gancho fuerte y directo (sin saludos ni rodeos). "
-        "Menciona el producto, el precio o descuento si está disponible, e invita a ir al enlace de la bio y guardar el Reel. "
+        "Escribe un guion corto de 16 a 22 palabras en español natural de México para un video vertical "
+        "sobre una oferta de precio accesible en Mercado Libre. "
+        "El tono debe ser seguro, sobrio, confiable y de buen gusto (nunca gritado ni exagerado). "
+        "Empieza en el segundo 0 con un gancho claro que destaque el valor del producto a bajo precio "
+        "y mencione Mercado Libre de forma natural. Termina invitando a ver el enlace de la bio y guardar el video. "
         "Devuelve solo el texto a locutar, sin emojis, sin asteriscos y sin comillas.\n"
         f"Producto: {titulo}\n"
         f"Precio: {precio or 'no especificado'}\n"
@@ -176,7 +197,7 @@ def generar_guion_voz(oferta: dict) -> str:
                 partes = candidatos[0].get("content", {}).get("parts") or []
                 if partes and partes[0].get("text"):
                     limpio = limpiar_texto_para_voz(partes[0]["text"])
-                    if 15 <= len(limpio) <= 280:
+                    if 20 <= len(limpio) <= 240:
                         return limpio
     except Exception as e:
         print(f"[REEL] Aviso Gemini (usando respaldo): {e}")
@@ -185,8 +206,36 @@ def generar_guion_voz(oferta: dict) -> str:
 
 
 async def _sintetizar_voz(texto: str, ruta_salida: str, voz: str):
-    communicate = edge_tts.Communicate(texto, voz, rate="+8%")
+    communicate = edge_tts.Communicate(texto, voz, rate="+4%")
     await communicate.save(ruta_salida)
+
+
+def _obtener_duracion_real_audio(ruta_voz: str, texto_respaldo: str) -> float:
+    try:
+        probe = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                ruta_voz,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if probe.returncode == 0 and probe.stdout.strip():
+            dur = float(probe.stdout.strip())
+            if dur > 0:
+                return round(dur, 2)
+    except Exception as e:
+        print(f"[REEL] Aviso ffprobe en audio (usando estimación): {e}")
+
+    chars_utiles = max(len(texto_respaldo or ""), 45)
+    return round(chars_utiles / 13.0, 2)
 
 
 def generar_audio_voz(guion: str, ruta_voz: str) -> float:
@@ -195,9 +244,8 @@ def generar_audio_voz(guion: str, ruta_voz: str) -> float:
     if not os.path.exists(ruta_voz) or os.path.getsize(ruta_voz) == 0:
         raise RuntimeError("Edge-TTS no generó archivo de audio válido.")
 
-    chars_utiles = max(len(guion or ""), 45)
-    duracion_estimada = round(chars_utiles / 13.5, 2)
-    return max(6.5, min(13.5, duracion_estimada))
+    duracion = _obtener_duracion_real_audio(ruta_voz, guion)
+    return max(6.5, min(14.0, duracion))
 
 
 def descargar_musica_automatica(ruta_musica: str) -> str:
@@ -229,7 +277,7 @@ def descargar_musica_automatica(ruta_musica: str) -> str:
                     if audio_res.ok and len(audio_res.content) > 5000:
                         with open(ruta_musica, "wb") as f:
                             f.write(audio_res.content)
-                        print(f"[REEL] Música alegre descargada desde Freesound ({query}).")
+                        print(f"[REEL] Música descargada desde Freesound ({query}).")
                         return ruta_musica
         except Exception as e:
             print(f"[REEL] Aviso Freesound: {e}")
@@ -268,13 +316,11 @@ def _crear_fondo_editorial(ancho: int, alto: int) -> Image.Image:
 
 
 def _encuadrar_producto_grande(img: Image.Image, box_w: int, box_h: int) -> Image.Image:
-    """Escala la foto del producto para llenar con elegancia el espacio de exhibición sin verse diminuta."""
     rgba = img.convert("RGBA")
     rgb = rgba.convert("RGB")
     w, h = rgb.size
     px = rgb.load()
 
-    # Solo recorta si la imagen tiene bordes completamente uniformes en sus 4 esquinas
     esquinas = [px[0, 0], px[w - 1, 0], px[0, h - 1], px[w - 1, h - 1]]
     fondo_blanco = sum(1 for r, g, b in esquinas if r > 246 and g > 246 and b > 246) == 4
     if fondo_blanco:
@@ -297,14 +343,12 @@ def _encuadrar_producto_grande(img: Image.Image, box_w: int, box_h: int) -> Imag
                 min(h, bottom + pad_y),
             ))
 
-    # Escala proporcionalmente ocupando hasta el 92% del área disponible
     target_w = int(box_w * 0.92)
     target_h = int(box_h * 0.92)
     escala = min(target_w / max(1, rgba.width), target_h / max(1, rgba.height))
     nuevo_w = max(1, int(rgba.width * escala))
     nuevo_h = max(1, int(rgba.height * escala))
 
-    # Mejora sutil de nitidez al escalar fotos pequeñas de catálogo
     redimensionada = rgba.resize((nuevo_w, nuevo_h), Image.Resampling.LANCZOS)
     rgb_sharp = redimensionada.convert("RGB").filter(ImageFilter.UnsharpMask(radius=1.2, percent=110, threshold=3))
     resultado = rgb_sharp.convert("RGBA")
@@ -313,7 +357,6 @@ def _encuadrar_producto_grande(img: Image.Image, box_w: int, box_h: int) -> Imag
 
 
 def crear_imagen_reel(oferta: dict, ruta_salida: str) -> bool:
-    """Genera un cuadro 1080x1920 con presencia visual limpia y estética de comercio."""
     ancho, alto = 1080, 1920
     canvas = _crear_fondo_editorial(ancho, alto)
     draw = ImageDraw.Draw(canvas)
@@ -322,16 +365,14 @@ def crear_imagen_reel(oferta: dict, ruta_salida: str) -> bool:
     precio = (oferta.get("precio") or "").strip()
     titulo = limpiar_titulo_visual(oferta.get("titulo") or "")
 
-    # Encabezado editorial superior
     f_marca = cargar_fuente(FONT_BOLD_PATHS, 26)
     draw.text((ancho // 2, 125), ">_ RADAR DE DESCUENTOS MX", fill=(148, 163, 184), font=f_marca, anchor="mm")
 
-    etiqueta = f"AHORRA {descuento}" if descuento else "SELECCIÓN DESTACADA"
+    etiqueta = f"AHORRA {descuento}" if descuento else "PRECIO ACCESIBLE ML"
     draw.rounded_rectangle([265, 168, 815, 232], radius=32, fill=(20, 28, 44), outline=(0, 255, 65), width=2)
     f_badge = cargar_fuente(FONT_BOLD_PATHS, 30)
     draw.text((ancho // 2, 200), etiqueta[:26], fill=(0, 255, 65), font=f_badge, anchor="mm")
 
-    # Vitrina central amplia para el producto
     card_x1, card_y1, card_x2, card_y2 = 84, 275, 996, 1085
     box_w = card_x2 - card_x1
     box_h = card_y2 - card_y1
@@ -381,7 +422,6 @@ def crear_imagen_reel(oferta: dict, ruta_salida: str) -> bool:
             anchor="mm",
         )
 
-    # Título limpio del producto
     lineas_titulo = textwrap.wrap(titulo, width=28)[:3]
     f_titulo = cargar_fuente(FONT_BOLD_PATHS, 46)
     y_cursor = 1150
@@ -389,7 +429,6 @@ def crear_imagen_reel(oferta: dict, ruta_salida: str) -> bool:
         draw.text((ancho // 2, y_cursor), linea, fill=(248, 250, 252), font=f_titulo, anchor="mm")
         y_cursor += 56
 
-    # Precio destacado con estética sobria
     if precio:
         draw.rounded_rectangle(
             [225, 1345, 855, 1468],
@@ -401,10 +440,9 @@ def crear_imagen_reel(oferta: dict, ruta_salida: str) -> bool:
         f_precio = cargar_fuente(FONT_BOLD_PATHS, 68)
         draw.text((ancho // 2, 1406), precio, fill=(255, 255, 255), font=f_precio, anchor="mm")
 
-    # Llamado a acción limpio en zona segura inferior
     f_cta = cargar_fuente(FONT_BOLD_PATHS, 34)
     f_sub = cargar_fuente(FONT_REG_PATHS, 30)
-    draw.text((ancho // 2, 1535), "LINK EN BIO  •  GUARDA ESTE REEL", fill=(248, 250, 252), font=f_cta, anchor="mm")
+    draw.text((ancho // 2, 1535), "ENLACE EN BIO  •  GUARDA ESTE REEL", fill=(248, 250, 252), font=f_cta, anchor="mm")
     draw.text((ancho // 2, 1590), f"Telegram {CANAL_TELEGRAM}", fill=(148, 163, 184), font=f_sub, anchor="mm")
 
     canvas.save(ruta_salida, format="PNG")
@@ -412,7 +450,7 @@ def crear_imagen_reel(oferta: dict, ruta_salida: str) -> bool:
 
 
 def renderizar_video_mp4(ruta_imagen: str, ruta_voz: str, ruta_musica: str, duracion: float, ruta_video: str) -> bool:
-    duracion = max(6.5, min(14.0, round(duracion + 1.0, 2)))
+    duracion = max(6.5, min(14.5, round(duracion + 1.0, 2)))
     total_frames = max(1, int(duracion * FPS))
     denom = max(1, total_frames - 1)
     fade_out_v = max(0.5, round(duracion - 0.45, 2))
@@ -471,29 +509,33 @@ def renderizar_video_mp4(ruta_imagen: str, ruta_voz: str, ruta_musica: str, dura
 
 def armar_caption_reel(oferta: dict) -> str:
     titulo = limpiar_titulo_visual(oferta.get("titulo") or "")
-    lineas = ["🔥 ¡OFERTA DETECTADA! 🚨", "", f"📦 {titulo}", ""]
+    lineas = [f"Precio accesible en Mercado Libre — {titulo}", ""]
 
     detalle = []
     if oferta.get("precio"):
-        detalle.append(f"💰 Precio: {oferta['precio']}")
+        detalle.append(f"Precio: {oferta['precio']}")
     if oferta.get("descuento"):
-        detalle.append(f"🏷️ Ahorro: {oferta['descuento']}")
+        detalle.append(f"Ahorro: {oferta['descuento']}")
     if detalle:
         lineas.append(" | ".join(detalle))
         lineas.append("")
 
     lineas.extend([
-        "🛒 Tienda: Mercado Libre México",
-        f"🔗 Enlace directo en nuestra bio y más ofertas en Telegram ({CANAL_TELEGRAM}).",
-        "🔖 Guarda este Reel y mándaselo a quien ande buscando algo así.",
-        "⚠️ Precios y stock sujetos a cambios.",
+        "Tienda: Mercado Libre México",
+        f"Enlace en la bio y más opciones en Telegram ({CANAL_TELEGRAM}).",
+        "Guarda este Reel para consultarlo después.",
+        "Precios y disponibilidad sujetos a cambios.",
         "",
-        "#OfertasMexico #DescuentosMX #MercadoLibre #Promociones #RadarDeDescuentosMX",
+        "#MercadoLibre #OfertasMexico #DescuentosMX #ComprasInteligentes #RadarDeDescuentosMX",
     ])
-    return "\n".join(lineas)
+    return _quitar_palabra_prohibida("\n".join(lineas))
 
 
 def _subir_y_publicar_reel(ig_user_id: str, access_token: str, ruta_mp4: str, caption: str) -> bool:
+    if not os.path.exists(ruta_mp4) or os.path.getsize(ruta_mp4) == 0:
+        print("[REEL] Archivo MP4 vacío o inexistente antes de subir.")
+        return False
+
     file_size = os.path.getsize(ruta_mp4)
 
     res_init = requests.post(
@@ -541,14 +583,18 @@ def _subir_y_publicar_reel(ig_user_id: str, access_token: str, ruta_mp4: str, ca
 
     for _ in range(24):
         time.sleep(5)
-        res_st = requests.get(
-            f"https://graph.facebook.com/{IG_API_VERSION}/{creation_id}",
-            params={"fields": "status_code,status", "access_token": access_token},
-            timeout=20,
-        )
-        status_data = res_st.json()
-        status_code = status_data.get("status_code")
+        try:
+            res_st = requests.get(
+                f"https://graph.facebook.com/{IG_API_VERSION}/{creation_id}",
+                params={"fields": "status_code,status", "access_token": access_token},
+                timeout=20,
+            )
+            status_data = res_st.json()
+        except Exception as e:
+            print(f"[REEL] Aviso consultando estado del contenedor: {e}")
+            continue
 
+        status_code = status_data.get("status_code")
         if status_code == "FINISHED":
             break
         if status_code in ("ERROR", "EXPIRED"):
