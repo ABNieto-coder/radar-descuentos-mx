@@ -304,13 +304,15 @@ def crear_imagen_reel(oferta: dict, ruta_salida: str) -> bool:
 
 def renderizar_video_mp4(ruta_imagen: str, ruta_voz: str, ruta_musica: str, duracion: float, ruta_video: str) -> bool:
     duracion = max(6.5, min(14.0, round(duracion + 1.0, 2)))
-    total_frames = int(duracion * FPS)
+    total_frames = max(1, int(duracion * FPS))
+    denom = max(1, total_frames - 1)
     fade_out_v = max(0.5, round(duracion - 0.45, 2))
     fade_out_a = max(0.5, round(duracion - 0.9, 2))
 
+    # Se escala a mayor resolución antes de zoompan para reducir el redondeo a píxeles enteros
     filtro_video = (
-        f"[0:v]scale=1080:1920,"
-        f"zoompan=z='min(1.0+0.0004*on,1.05)'"
+        f"[0:v]scale=2160:3840:flags=lanczos,"
+        f"zoompan=z='1.0+0.04*(1-cos(PI*on/{denom}))/2'"
         f":x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
         f":d={total_frames}:s=1080x1920:fps={FPS},"
         f"fade=t=in:st=0:d=0.35,"
@@ -332,7 +334,7 @@ def renderizar_video_mp4(ruta_imagen: str, ruta_voz: str, ruta_musica: str, dura
             "-filter_complex", f"{filtro_video};{filtro_audio}",
             "-map", "[vout]", "-map", "[aout]",
             "-t", str(duracion),
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-g", "60",
             "-c:a", "aac", "-b:a", "128k", "-ar", "44100",
             "-movflags", "+faststart",
             ruta_video,
@@ -346,7 +348,7 @@ def renderizar_video_mp4(ruta_imagen: str, ruta_voz: str, ruta_musica: str, dura
             "-filter_complex", f"{filtro_video};{filtro_audio}",
             "-map", "[vout]", "-map", "[aout]",
             "-t", str(duracion),
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-g", "60",
             "-c:a", "aac", "-b:a", "128k", "-ar", "44100",
             "-movflags", "+faststart",
             ruta_video,
