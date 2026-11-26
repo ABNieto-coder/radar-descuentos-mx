@@ -56,7 +56,21 @@ def cargar_fuente(rutas, tamano):
 
 def _quitar_palabra_prohibida(texto: str) -> str:
     limpio = re.sub(r"\bcuradur[íi]a\b", "selección", texto or "", flags=re.IGNORECASE)
+    limpio = re.sub(r"\bcorre\b", "entra", limpio, flags=re.IGNORECASE)
     return re.sub(r"\s+", " ", limpio).strip()
+
+
+def _recortar_en_palabra(texto: str, max_chars: int = 48) -> str:
+    limpio = re.sub(r"\s+", " ", (texto or "").strip())
+    if len(limpio) <= max_chars:
+        return limpio
+    recorte = limpio[: max_chars + 1].rsplit(" ", 1)[0].strip()
+    palabras = recorte.split()
+    # Evita dejar conectores o preposiciones colgando al final (ej. "vaso de")
+    conectores_finales = {"de", "del", "la", "las", "el", "los", "con", "para", "por", "y", "en", "a", "un", "una"}
+    while len(palabras) > 2 and palabras[-1].lower() in conectores_finales:
+        palabras.pop()
+    return " ".join(palabras) if palabras else limpio[:max_chars].strip()
 
 
 def limpiar_titulo_visual(titulo: str) -> str:
@@ -146,18 +160,18 @@ def limpiar_texto_para_voz(texto: str) -> str:
 
 
 def _construir_hook_respaldo(titulo: str, precio: str, descuento: str) -> str:
-    producto_corto = titulo[:52].strip()
+    producto_limpio = _recortar_en_palabra(titulo, max_chars=44)
     plantillas = [
-        f"Precio accesible en Mercado Libre: {producto_corto}"
+        f"Precio accesible en Mercado Libre: {producto_limpio}"
         + (f" a {precio}." if precio else ".")
-        + " Vale la pena revisarlo en el enlace de la bio.",
-        f"Buen precio en Mercado Libre para {producto_corto}"
+        + " Revisa el enlace en la bio y guárdalo.",
+        f"Buen precio en Mercado Libre para {producto_limpio}"
         + (f", con {descuento}" if descuento else "")
         + (f" y queda en {precio}." if precio else ".")
         + " Guárdalo y mira los detalles en la bio.",
-        f"Si buscas {producto_corto} sin gastar de más, en Mercado Libre está"
+        f"Si buscas {producto_limpio} sin gastar de más, en Mercado Libre está"
         + (f" a {precio}." if precio else " a buen precio.")
-        + " Revísalo en la bio antes de que cambie.",
+        + " Revísalo en la bio con calma.",
     ]
     return limpiar_texto_para_voz(random.choice(plantillas))
 
@@ -170,14 +184,16 @@ def generar_guion_voz(oferta: dict) -> str:
 
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key:
+        print(f"[REEL] Guion voz (respaldo): {respaldo}")
         return respaldo
 
     prompt = (
-        "Escribe un guion corto de 16 a 22 palabras en español natural de México para un video vertical "
+        "Escribe un guion corto de 14 a 18 palabras en español natural de México para un video vertical "
         "sobre una oferta de precio accesible en Mercado Libre. "
         "El tono debe ser seguro, sobrio, confiable y de buen gusto (nunca gritado ni exagerado). "
         "Empieza en el segundo 0 con un gancho claro que destaque el valor del producto a bajo precio "
         "y mencione Mercado Libre de forma natural. Termina invitando a ver el enlace de la bio y guardar el video. "
+        "No cortes nombres a medias y no uses la palabra corre. "
         "Devuelve solo el texto a locutar, sin emojis, sin asteriscos y sin comillas.\n"
         f"Producto: {titulo}\n"
         f"Precio: {precio or 'no especificado'}\n"
@@ -197,16 +213,18 @@ def generar_guion_voz(oferta: dict) -> str:
                 partes = candidatos[0].get("content", {}).get("parts") or []
                 if partes and partes[0].get("text"):
                     limpio = limpiar_texto_para_voz(partes[0]["text"])
-                    if 20 <= len(limpio) <= 240:
+                    if 20 <= len(limpio) <= 210:
+                        print(f"[REEL] Guion voz (Gemini): {limpio}")
                         return limpio
     except Exception as e:
         print(f"[REEL] Aviso Gemini (usando respaldo): {e}")
 
+    print(f"[REEL] Guion voz (respaldo): {respaldo}")
     return respaldo
 
 
 async def _sintetizar_voz(texto: str, ruta_salida: str, voz: str):
-    communicate = edge_tts.Communicate(texto, voz, rate="+4%")
+    communicate = edge_tts.Communicate(texto, voz, rate="+2%")
     await communicate.save(ruta_salida)
 
 
@@ -234,8 +252,8 @@ def _obtener_duracion_real_audio(ruta_voz: str, texto_respaldo: str) -> float:
     except Exception as e:
         print(f"[REEL] Aviso ffprobe en audio (usando estimación): {e}")
 
-    chars_utiles = max(len(texto_respaldo or ""), 45)
-    return round(chars_utiles / 13.0, 2)
+    chars_utiles = max(len(texto_respaldo or ""), 50)
+    return round(chars_utiles / 11.5, 2)
 
 
 def generar_audio_voz(guion: str, ruta_voz: str) -> float:
@@ -245,7 +263,8 @@ def generar_audio_voz(guion: str, ruta_voz: str) -> float:
         raise RuntimeError("Edge-TTS no generó archivo de audio válido.")
 
     duracion = _obtener_duracion_real_audio(ruta_voz, guion)
-    return max(6.5, min(14.0, duracion))
+    print(f"[REEL] Duración real detectada de voz: {duracion}s")
+    return max(7.5, min(14.5, duracion))
 
 
 def descargar_musica_automatica(ruta_musica: str) -> str:
@@ -450,11 +469,12 @@ def crear_imagen_reel(oferta: dict, ruta_salida: str) -> bool:
 
 
 def renderizar_video_mp4(ruta_imagen: str, ruta_voz: str, ruta_musica: str, duracion: float, ruta_video: str) -> bool:
-    duracion = max(6.5, min(14.5, round(duracion + 1.0, 2)))
+    # Deja margen extra al final para que la locución cierre completa sin corte abrupto
+    duracion = max(8.0, min(16.5, round(duracion + 1.6, 2)))
     total_frames = max(1, int(duracion * FPS))
     denom = max(1, total_frames - 1)
     fade_out_v = max(0.5, round(duracion - 0.45, 2))
-    fade_out_a = max(0.5, round(duracion - 0.9, 2))
+    fade_out_a = max(0.5, round(duracion - 0.85, 2))
 
     filtro_video = (
         f"[0:v]scale=2160:3840:flags=lanczos,"
@@ -468,9 +488,9 @@ def renderizar_video_mp4(ruta_imagen: str, ruta_voz: str, ruta_musica: str, dura
 
     if ruta_musica and os.path.exists(ruta_musica):
         filtro_audio = (
-            f"[1:a]adelay=250|250,volume=1.05[voz];"
-            f"[2:a]volume=0.14,afade=t=in:st=0:d=0.4,afade=t=out:st={fade_out_a}:d=0.9[mus];"
-            f"[voz][mus]amix=inputs=2:duration=longest:normalize=0[aout]"
+            f"[1:a]adelay=250|250,apad,volume=1.05[voz];"
+            f"[2:a]volume=0.14,afade=t=in:st=0:d=0.4,afade=t=out:st={fade_out_a}:d=0.85[mus];"
+            f"[voz][mus]amix=inputs=2:duration=first:normalize=0[aout]"
         )
         cmd = [
             "ffmpeg", "-y",
