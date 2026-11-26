@@ -172,12 +172,12 @@ def limpiar_titulo_para_busqueda(titulo):
     return limpio[:75]
 
 
-def limpiar_titulo_editorial(titulo):
+def limpiar_titulo_simple(titulo):
     limpio = html.unescape((titulo or "").strip())
     limpio = re.sub(r"^\s*\d+\s*°\s*[-–—:]?\s*", "", limpio)
     limpio = re.sub(r"(?i)^mercado\s*libre\s*:?\s*", "", limpio)
     limpio = re.sub(r"\s+", " ", limpio).strip()
-    return limpio or "Selección destacada"
+    return limpio or "Oferta disponible"
 
 
 def buscar_permalink_ml_api(consulta):
@@ -343,11 +343,11 @@ def buscar_ofertas_curadas():
 
 
 def construir_link_compartir(titulo, url_afiliado):
-    titulo_limpio = limpiar_titulo_editorial(titulo)
+    titulo_limpio = limpiar_titulo_simple(titulo)
     texto = (
-        f"Edición {CANAL}:\n"
+        f"Oferta en {CANAL}:\n"
         f"{titulo_limpio}\n\n"
-        f"Enlace: {url_afiliado}"
+        f"{url_afiliado}"
     )
     return f"https://t.me/share/url?url={quote(url_afiliado)}&text={quote(texto)}"
 
@@ -358,30 +358,30 @@ def publicar_en_telegram(oferta):
     if not url_afiliado or not titulo_crudo:
         return False
 
-    titulo_limpio = limpiar_titulo_editorial(titulo_crudo)
+    titulo_limpio = limpiar_titulo_simple(titulo_crudo)
     titulo_seguro = escapar_html(titulo_limpio)
-    etiqueta_edicion = "EDICIÓN ESPECIAL" if oferta.get("tier") == 1 else "CURADURÍA SELECTA"
+    etiqueta = "OFERTA DIRECTA" if oferta.get("tier") == 1 else "OFERTA DESTACADA"
 
     lineas = [
-        f"<code>{etiqueta_edicion}</code>",
+        f"<code>{etiqueta}</code>",
         f"<b>{titulo_seguro}</b>",
     ]
 
     if oferta.get("precio") or oferta.get("descuento"):
         lineas.append("")
         if oferta.get("precio"):
-            lineas.append(f"<b>{escapar_html(oferta['precio'])}</b>  •  Precio accesible")
+            lineas.append(f"<b>{escapar_html(oferta['precio'])}</b>")
         if oferta.get("descuento"):
-            lineas.append(f"Ahorro: <b>{escapar_html(oferta['descuento'])}</b>")
+            lineas.append(f"Descuento: <b>{escapar_html(oferta['descuento'])}</b>")
 
     lineas.extend([
         "",
-        f"Curaduría {CANAL}  |  Mercado Libre MX",
-        "<i>Disponibilidad y precio sujetos a cambio.</i>",
+        f"Mercado Libre México  •  {CANAL}",
+        "<i>Precios y disponibilidad sujetos a cambio.</i>",
     ])
     caption = "\n".join(lineas)
 
-    texto_boton = "Ver pieza" if oferta.get("tier") == 1 else "Ver selección"
+    texto_boton = "Ver producto" if oferta.get("tier") == 1 else "Ver oferta"
     botones = {
         "inline_keyboard": [
             [{"text": texto_boton, "url": url_afiliado}],
