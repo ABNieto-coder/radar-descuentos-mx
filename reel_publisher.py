@@ -56,8 +56,10 @@ def cargar_fuente(rutas, tamano):
 
 def limpiar_titulo_visual(titulo: str) -> str:
     limpio = html.unescape((titulo or "").strip())
-    limpio = re.sub(r"(?i)^mercado\s*libre\s*:?\s*", "", limpio).strip()
-    return limpio or "Oferta destacada"
+    limpio = re.sub(r"^\s*\d+\s*°\s*[-–—:]?\s*", "", limpio)
+    limpio = re.sub(r"(?i)^mercado\s*libre\s*:?\s*", "", limpio)
+    limpio = re.sub(r"\s+", " ", limpio).strip()
+    return limpio or "Selección destacada"
 
 
 def normalizar_imagen_ml(imagen_url: str) -> str:
@@ -117,7 +119,7 @@ def descargar_imagen_producto(oferta: dict) -> Image.Image | None:
             resp = requests.get(url, headers=HEADERS_IMG, timeout=20)
             resp.raise_for_status()
             img = Image.open(BytesIO(resp.content)).convert("RGBA")
-            if img.width >= 80 and img.height >= 80:
+            if img.width >= 60 and img.height >= 60:
                 return img
         except Exception as e:
             print(f"[REEL] Aviso descargando imagen ({url}): {e}")
@@ -140,11 +142,11 @@ def generar_guion_voz(oferta: dict) -> str:
     precio = (oferta.get("precio") or "").strip()
     descuento = (oferta.get("descuento") or "").strip()
 
-    gancho = f"¡Ojo a esta oferta en {titulo[:55]}!"
+    gancho = f"¡Ojo a este hallazgo en {titulo[:55]}!"
     if descuento:
         gancho = f"¡{descuento} en {titulo[:50]}!"
     respaldo = limpiar_texto_para_voz(
-        f"{gancho} {f'Queda en {precio}. ' if precio else ''}Corre al link de la bio y guárdalo."
+        f"{gancho} {f'Queda en {precio}. ' if precio else ''}Corre al enlace de la bio y guárdalo."
     )
 
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
@@ -242,12 +244,12 @@ def descargar_musica_automatica(ruta_musica: str) -> str:
     return ""
 
 
-def _crear_fondo_estetico(ancho: int, alto: int) -> Image.Image:
-    base = Image.new("RGB", (ancho, alto), (11, 15, 23))
+def _crear_fondo_editorial(ancho: int, alto: int) -> Image.Image:
+    base = Image.new("RGB", (ancho, alto), (10, 14, 22))
     draw = ImageDraw.Draw(base)
 
-    top_rgb = (11, 15, 23)
-    bot_rgb = (18, 24, 38)
+    top_rgb = (10, 14, 22)
+    bot_rgb = (17, 24, 39)
     for y in range(alto):
         t = y / max(1, alto - 1)
         r = int(top_rgb[0] + (bot_rgb[0] - top_rgb[0]) * t)
@@ -257,110 +259,119 @@ def _crear_fondo_estetico(ancho: int, alto: int) -> Image.Image:
 
     glow = Image.new("RGBA", (ancho, alto), (0, 0, 0, 0))
     gdraw = ImageDraw.Draw(glow)
-    gdraw.ellipse([-140, 220, 560, 920], fill=(0, 255, 65, 22))
-    gdraw.ellipse([520, 980, 1220, 1680], fill=(56, 189, 248, 28))
+    gdraw.ellipse([-120, 240, 580, 940], fill=(0, 255, 65, 20))
+    gdraw.ellipse([500, 950, 1200, 1650], fill=(56, 189, 248, 24))
     glow = glow.filter(ImageFilter.GaussianBlur(150))
 
     compuesta = Image.alpha_composite(base.convert("RGBA"), glow)
     return compuesta.convert("RGB")
 
 
-def _quitar_borde_blanco_suave(img: Image.Image) -> Image.Image:
+def _encuadrar_producto_grande(img: Image.Image, box_w: int, box_h: int) -> Image.Image:
+    """Escala la foto del producto para llenar con elegancia el espacio de exhibición sin verse diminuta."""
     rgba = img.convert("RGBA")
     rgb = rgba.convert("RGB")
     w, h = rgb.size
     px = rgb.load()
 
+    # Solo recorta si la imagen tiene bordes completamente uniformes en sus 4 esquinas
     esquinas = [px[0, 0], px[w - 1, 0], px[0, h - 1], px[w - 1, h - 1]]
-    esquinas_claras = sum(1 for r, g, b in esquinas if r > 242 and g > 242 and b > 242)
-    if esquinas_claras < 3:
-        return rgba
+    fondo_blanco = sum(1 for r, g, b in esquinas if r > 246 and g > 246 and b > 246) == 4
+    if fondo_blanco:
+        left, top, right, bottom = w, h, 0, 0
+        for y in range(0, h, 2):
+            for x in range(0, w, 2):
+                r, g, b = px[x, y]
+                if not (r > 246 and g > 246 and b > 246):
+                    left = min(left, x)
+                    top = min(top, y)
+                    right = max(right, x)
+                    bottom = max(bottom, y)
+        if (right - left) >= 60 and (bottom - top) >= 60:
+            pad_x = max(10, int((right - left) * 0.05))
+            pad_y = max(10, int((bottom - top) * 0.05))
+            rgba = rgba.crop((
+                max(0, left - pad_x),
+                max(0, top - pad_y),
+                min(w, right + pad_x),
+                min(h, bottom + pad_y),
+            ))
 
-    left, top, right, bottom = w, h, 0, 0
-    for y in range(0, h, 2):
-        for x in range(0, w, 2):
-            r, g, b = px[x, y]
-            if not (r > 244 and g > 244 and b > 244):
-                if x < left:
-                    left = x
-                if y < top:
-                    top = y
-                if x > right:
-                    right = x
-                if y > bottom:
-                    bottom = y
+    # Escala proporcionalmente ocupando hasta el 92% del área disponible
+    target_w = int(box_w * 0.92)
+    target_h = int(box_h * 0.92)
+    escala = min(target_w / max(1, rgba.width), target_h / max(1, rgba.height))
+    nuevo_w = max(1, int(rgba.width * escala))
+    nuevo_h = max(1, int(rgba.height * escala))
 
-    if right > left and bottom > top:
-        pad_x = max(8, int((right - left) * 0.04))
-        pad_y = max(8, int((bottom - top) * 0.04))
-        left = max(0, left - pad_x)
-        top = max(0, top - pad_y)
-        right = min(w, right + pad_x)
-        bottom = min(h, bottom + pad_y)
-        if (right - left) >= 80 and (bottom - top) >= 80:
-            return rgba.crop((left, top, right, bottom))
-
-    return rgba
+    # Mejora sutil de nitidez al escalar fotos pequeñas de catálogo
+    redimensionada = rgba.resize((nuevo_w, nuevo_h), Image.Resampling.LANCZOS)
+    rgb_sharp = redimensionada.convert("RGB").filter(ImageFilter.UnsharpMask(radius=1.2, percent=110, threshold=3))
+    resultado = rgb_sharp.convert("RGBA")
+    resultado.putalpha(redimensionada.getchannel("A"))
+    return resultado
 
 
 def crear_imagen_reel(oferta: dict, ruta_salida: str) -> bool:
+    """Genera un cuadro 1080x1920 con presencia visual limpia y estética de comercio."""
     ancho, alto = 1080, 1920
-    canvas = _crear_fondo_estetico(ancho, alto)
+    canvas = _crear_fondo_editorial(ancho, alto)
     draw = ImageDraw.Draw(canvas)
 
     descuento = (oferta.get("descuento") or "").strip().upper()
     precio = (oferta.get("precio") or "").strip()
     titulo = limpiar_titulo_visual(oferta.get("titulo") or "")
 
+    # Encabezado editorial superior
     f_marca = cargar_fuente(FONT_BOLD_PATHS, 26)
-    draw.text((ancho // 2, 118), ">_ RADAR DE DESCUENTOS MX", fill=(148, 163, 184), font=f_marca, anchor="mm")
+    draw.text((ancho // 2, 125), ">_ RADAR DE DESCUENTOS MX", fill=(148, 163, 184), font=f_marca, anchor="mm")
 
-    etiqueta = f"AHORRA {descuento}" if descuento else "PRECIO TOP"
-    draw.rounded_rectangle([290, 160, 790, 224], radius=32, fill=(24, 32, 48), outline=(0, 255, 65), width=2)
-    f_badge = cargar_fuente(FONT_BOLD_PATHS, 32)
-    draw.text((ancho // 2, 192), etiqueta[:24], fill=(0, 255, 65), font=f_badge, anchor="mm")
+    etiqueta = f"AHORRA {descuento}" if descuento else "SELECCIÓN DESTACADA"
+    draw.rounded_rectangle([265, 168, 815, 232], radius=32, fill=(20, 28, 44), outline=(0, 255, 65), width=2)
+    f_badge = cargar_fuente(FONT_BOLD_PATHS, 30)
+    draw.text((ancho // 2, 200), etiqueta[:26], fill=(0, 255, 65), font=f_badge, anchor="mm")
 
-    card_x1, card_y1, card_x2, card_y2 = 120, 275, 960, 1020
+    # Vitrina central amplia para el producto
+    card_x1, card_y1, card_x2, card_y2 = 84, 275, 996, 1085
+    box_w = card_x2 - card_x1
+    box_h = card_y2 - card_y1
+
     sombra = Image.new("RGBA", (ancho, alto), (0, 0, 0, 0))
     sdraw = ImageDraw.Draw(sombra)
-    sdraw.rounded_rectangle([card_x1 + 4, card_y1 + 10, card_x2 + 4, card_y2 + 10], radius=40, fill=(0, 0, 0, 120))
-    sombra = sombra.filter(ImageFilter.GaussianBlur(16))
+    sdraw.rounded_rectangle([card_x1 + 6, card_y1 + 12, card_x2 + 6, card_y2 + 12], radius=44, fill=(0, 0, 0, 130))
+    sombra = sombra.filter(ImageFilter.GaussianBlur(18))
     canvas = Image.alpha_composite(canvas.convert("RGBA"), sombra).convert("RGB")
     draw = ImageDraw.Draw(canvas)
 
     draw.rounded_rectangle(
         [card_x1, card_y1, card_x2, card_y2],
-        radius=40,
+        radius=44,
         fill=(255, 255, 255),
-        outline=(51, 65, 85),
+        outline=(71, 85, 105),
         width=2,
     )
 
     prod_img = descargar_imagen_producto(oferta)
     if prod_img is not None:
-        limpia_img = _quitar_borde_blanco_suave(prod_img)
-        max_w = (card_x2 - card_x1) - 76
-        max_h = (card_y2 - card_y1) - 76
-        limpia_img.thumbnail((max_w, max_h), Image.Resampling.LANCZOS)
-
-        px = card_x1 + ((card_x2 - card_x1) - limpia_img.width) // 2
-        py = card_y1 + ((card_y2 - card_y1) - limpia_img.height) // 2
-        canvas.paste(limpia_img, (px, py), limpia_img)
+        pieza = _encuadrar_producto_grande(prod_img, box_w, box_h)
+        px = card_x1 + (box_w - pieza.width) // 2
+        py = card_y1 + (box_h - pieza.height) // 2
+        canvas.paste(pieza, (px, py), pieza)
     else:
         print("[REEL] Fallback visual activado: sin foto real descargable.")
         centro_x = (card_x1 + card_x2) // 2
         f_tag = cargar_fuente(FONT_BOLD_PATHS, 28)
-        f_fb_tit = cargar_fuente(FONT_BOLD_PATHS, 44)
+        f_fb_tit = cargar_fuente(FONT_BOLD_PATHS, 46)
         f_fb_nota = cargar_fuente(FONT_REG_PATHS, 28)
 
-        draw.rounded_rectangle([centro_x - 160, card_y1 + 95, centro_x + 160, card_y1 + 145], radius=25, fill=(241, 245, 249))
+        draw.rounded_rectangle([centro_x - 165, card_y1 + 95, centro_x + 165, card_y1 + 145], radius=25, fill=(241, 245, 249))
         draw.text((centro_x, card_y1 + 120), "MERCADO LIBRE MX", fill=(15, 23, 42), font=f_tag, anchor="mm")
 
-        lineas_fb = textwrap.wrap(titulo, width=23)[:3]
-        y_fb = card_y1 + 250
+        lineas_fb = textwrap.wrap(titulo, width=24)[:3]
+        y_fb = card_y1 + 260
         for linea_fb in lineas_fb:
             draw.text((centro_x, y_fb), linea_fb, fill=(15, 23, 42), font=f_fb_tit, anchor="mm")
-            y_fb += 58
+            y_fb += 60
 
         draw.text(
             (centro_x, card_y2 - 110),
@@ -370,28 +381,31 @@ def crear_imagen_reel(oferta: dict, ruta_salida: str) -> bool:
             anchor="mm",
         )
 
+    # Título limpio del producto
     lineas_titulo = textwrap.wrap(titulo, width=28)[:3]
     f_titulo = cargar_fuente(FONT_BOLD_PATHS, 46)
-    y_cursor = 1095
+    y_cursor = 1150
     for linea in lineas_titulo:
         draw.text((ancho // 2, y_cursor), linea, fill=(248, 250, 252), font=f_titulo, anchor="mm")
         y_cursor += 56
 
+    # Precio destacado con estética sobria
     if precio:
         draw.rounded_rectangle(
-            [230, 1310, 850, 1435],
+            [225, 1345, 855, 1468],
             radius=32,
-            fill=(20, 30, 48),
+            fill=(18, 28, 45),
             outline=(16, 185, 129),
             width=3,
         )
         f_precio = cargar_fuente(FONT_BOLD_PATHS, 68)
-        draw.text((ancho // 2, 1372), precio, fill=(255, 255, 255), font=f_precio, anchor="mm")
+        draw.text((ancho // 2, 1406), precio, fill=(255, 255, 255), font=f_precio, anchor="mm")
 
+    # Llamado a acción limpio en zona segura inferior
     f_cta = cargar_fuente(FONT_BOLD_PATHS, 34)
     f_sub = cargar_fuente(FONT_REG_PATHS, 30)
-    draw.text((ancho // 2, 1510), "LINK EN BIO  •  GUARDA ESTE REEL", fill=(248, 250, 252), font=f_cta, anchor="mm")
-    draw.text((ancho // 2, 1565), f"Telegram {CANAL_TELEGRAM}", fill=(148, 163, 184), font=f_sub, anchor="mm")
+    draw.text((ancho // 2, 1535), "LINK EN BIO  •  GUARDA ESTE REEL", fill=(248, 250, 252), font=f_cta, anchor="mm")
+    draw.text((ancho // 2, 1590), f"Telegram {CANAL_TELEGRAM}", fill=(148, 163, 184), font=f_sub, anchor="mm")
 
     canvas.save(ruta_salida, format="PNG")
     return True
