@@ -12,7 +12,7 @@ from io import BytesIO
 
 import edge_tts
 import requests
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 IG_API_VERSION = "v27.0"
 CANAL_TELEGRAM = "@RadarDescuentosMX247"
@@ -52,6 +52,12 @@ def cargar_fuente(rutas, tamano):
         if os.path.exists(ruta):
             return ImageFont.truetype(ruta, tamano)
     return ImageFont.load_default()
+
+
+def limpiar_titulo_visual(titulo: str) -> str:
+    limpio = html.unescape((titulo or "").strip())
+    limpio = re.sub(r"(?i)^mercado\s*libre\s*:?\s*", "", limpio).strip()
+    return limpio or "Oferta destacada"
 
 
 def normalizar_imagen_ml(imagen_url: str) -> str:
@@ -130,7 +136,7 @@ def limpiar_texto_para_voz(texto: str) -> str:
 
 
 def generar_guion_voz(oferta: dict) -> str:
-    titulo = html.unescape((oferta.get("titulo") or "").strip())
+    titulo = limpiar_titulo_visual(oferta.get("titulo") or "")
     precio = (oferta.get("precio") or "").strip()
     descuento = (oferta.get("descuento") or "").strip()
 
@@ -236,66 +242,162 @@ def descargar_musica_automatica(ruta_musica: str) -> str:
     return ""
 
 
+def _crear_fondo_estetico(ancho: int, alto: int) -> Image.Image:
+    """Crea un fondo degradado oscuro moderno con destellos suaves de color."""
+    base = Image.new("RGB", (ancho, alto), (9, 13, 22))
+    draw = ImageDraw.Draw(base)
+
+    # Gradiente vertical sutil
+    top_rgb = (10, 15, 28)
+    bot_rgb = (18, 27, 46)
+    for y in range(alto):
+        t = y / max(1, alto - 1)
+        r = int(top_rgb[0] + (bot_rgb[0] - top_rgb[0]) * t)
+        g = int(top_rgb[1] + (bot_rgb[1] - top_rgb[1]) * t)
+        b = int(top_rgb[2] + (bot_rgb[2] - top_rgb[2]) * t)
+        draw.line([(0, y), (ancho, y)], fill=(r, g, b))
+
+    # Destellos suaves difuminados
+    glow = Image.new("RGBA", (ancho, alto), (0, 0, 0, 0))
+    gdraw = ImageDraw.Draw(glow)
+    gdraw.ellipse([-180, 140, 620, 940], fill=(37, 99, 235, 48))
+    gdraw.ellipse([480, 950, 1280, 1750], fill=(16, 185, 129, 36))
+    glow = glow.filter(ImageFilter.GaussianBlur(140))
+
+    compuesta = Image.alpha_composite(base.convert("RGBA"), glow)
+    return compuesta.convert("RGB")
+
+
+def _quitar_borde_blanco_suave(img: Image.Image) -> Image.Image:
+    """Recorta márgenes blancos excesivos alrededor de fotos de catálogo para dar más presencia."""
+    rgba = img.convert("RGBA")
+    rgb = rgba.convert("RGB")
+    w, h = rgb.size
+    px = rgb.load()
+
+    # Muestrea esquinas para detectar si el fondo del producto es blanco/muy claro
+    esquinas = [px[0, 0], px[w - 1, 0], px[0, h - 1], px[w - 1, h - 1]]
+    esquinas_claras = sum(1 for r, g, b in esquinas if r > 242 and g > 242 and b > 242)
+    if esquinas_claras < 3:
+        return rgba
+
+    # Encuentra bounding box de píxeles no blancos
+    left, top, right, bottom = w, h, 0, 0
+    for y in range(0, h, 2):
+        for x in range(0, w, 2):
+            r, g, b = px[x, y]
+            if not (r > 244 and g > 244 and b > 244):
+                if x < left:
+                    left = x
+                if y < top:
+                    top = y
+                if x > right:
+                    right = x
+                if y > bottom:
+                    bottom = y
+
+    if right > left and bottom > top:
+        pad_x = max(8, int((right - left) * 0.04))
+        pad_y = max(8, int((bottom - top) * 0.04))
+        left = max(0, left - pad_x)
+        top = max(0, top - pad_y)
+        right = min(w, right + pad_x)
+        bottom = min(h, bottom + pad_y)
+        if (right - left) >= 80 and (bottom - top) >= 80:
+            return rgba.crop((left, top, right, bottom))
+
+    return rgba
+
+
 def crear_imagen_reel(oferta: dict, ruta_salida: str) -> bool:
     ancho, alto = 1080, 1920
-    canvas = Image.new("RGB", (ancho, alto), (15, 23, 42))
+    canvas = _crear_fondo_estetico(ancho, alto)
     draw = ImageDraw.Draw(canvas)
 
     descuento = (oferta.get("descuento") or "").strip().upper()
     precio = (oferta.get("precio") or "").strip()
-    titulo = html.unescape((oferta.get("titulo") or "").strip())
+    titulo = limpiar_titulo_visual(oferta.get("titulo") or "")
 
-    texto_badge = f"OFERTA {descuento}" if descuento else "OFERTA DETECTADA"
-    draw.rounded_rectangle([120, 120, 960, 225], radius=45, fill=(239, 68, 68))
-    f_badge = cargar_fuente(FONT_BOLD_PATHS, 44)
-    draw.text((ancho // 2, 172), texto_badge[:24], fill=(255, 255, 255), font=f_badge, anchor="mm")
+    # Encabezado superior limpio
+    f_marca = cargar_fuente(FONT_BOLD_PATHS, 28)
+    draw.text((ancho // 2, 118), "RADAR DE DESCUENTOS MX", fill=(148, 163, 184), font=f_marca, anchor="mm")
 
-    card_x1, card_y1, card_x2, card_y2 = 100, 275, 980, 1055
-    draw.rounded_rectangle([card_x1, card_y1, card_x2, card_y2], radius=40, fill=(255, 255, 255))
+    badge_texto = f"AHORRA {descuento}" if descuento else "OFERTA DEL DÍA"
+    badge_color = (225, 29, 72) if descuento else (234, 88, 12)
+    draw.rounded_rectangle([250, 158, 830, 232], radius=37, fill=badge_color)
+    f_badge = cargar_fuente(FONT_BOLD_PATHS, 36)
+    draw.text((ancho // 2, 195), badge_texto[:24], fill=(255, 255, 255), font=f_badge, anchor="mm")
+
+    # Sombra suave y tarjeta central de producto
+    card_x1, card_y1, card_x2, card_y2 = 115, 275, 965, 1035
+    sombra = Image.new("RGBA", (ancho, alto), (0, 0, 0, 0))
+    sdraw = ImageDraw.Draw(sombra)
+    sdraw.rounded_rectangle([card_x1 + 6, card_y1 + 12, card_x2 + 6, card_y2 + 12], radius=44, fill=(0, 0, 0, 115))
+    sombra = sombra.filter(ImageFilter.GaussianBlur(18))
+    canvas = Image.alpha_composite(canvas.convert("RGBA"), sombra).convert("RGB")
+    draw = ImageDraw.Draw(canvas)
+
+    draw.rounded_rectangle(
+        [card_x1, card_y1, card_x2, card_y2],
+        radius=44,
+        fill=(255, 255, 255),
+        outline=(226, 232, 240),
+        width=3,
+    )
 
     prod_img = descargar_imagen_producto(oferta)
     if prod_img is not None:
-        max_w = (card_x2 - card_x1) - 60
-        max_h = (card_y2 - card_y1) - 60
-        prod_img.thumbnail((max_w, max_h), Image.Resampling.LANCZOS)
+        limpia_img = _quitar_borde_blanco_suave(prod_img)
+        max_w = (card_x2 - card_x1) - 70
+        max_h = (card_y2 - card_y1) - 70
+        limpia_img.thumbnail((max_w, max_h), Image.Resampling.LANCZOS)
 
-        px = card_x1 + ((card_x2 - card_x1) - prod_img.width) // 2
-        py = card_y1 + ((card_y2 - card_y1) - prod_img.height) // 2
-        canvas.paste(prod_img, (px, py), prod_img)
+        px = card_x1 + ((card_x2 - card_x1) - limpia_img.width) // 2
+        py = card_y1 + ((card_y2 - card_y1) - limpia_img.height) // 2
+        canvas.paste(limpia_img, (px, py), limpia_img)
     else:
         print("[REEL] Fallback visual activado: sin foto real descargable.")
         centro_x = (card_x1 + card_x2) // 2
-        f_fb_marca = cargar_fuente(FONT_BOLD_PATHS, 42)
-        f_fb_prod = cargar_fuente(FONT_BOLD_PATHS, 44)
-        f_fb_precio = cargar_fuente(FONT_BOLD_PATHS, 56)
+        f_tag = cargar_fuente(FONT_BOLD_PATHS, 30)
+        f_fb_tit = cargar_fuente(FONT_BOLD_PATHS, 46)
+        f_fb_nota = cargar_fuente(FONT_REG_PATHS, 30)
 
-        draw.text((centro_x, card_y1 + 120), "MERCADO LIBRE MX", fill=(30, 41, 59), font=f_fb_marca, anchor="mm")
-        lineas_fb = textwrap.wrap(titulo, width=24)[:3]
-        y_fb = card_y1 + 240
+        draw.rounded_rectangle([centro_x - 170, card_y1 + 95, centro_x + 170, card_y1 + 150], radius=27, fill=(241, 245, 249))
+        draw.text((centro_x, card_y1 + 122), "MERCADO LIBRE MX", fill=(30, 41, 59), font=f_tag, anchor="mm")
+
+        lineas_fb = textwrap.wrap(titulo, width=23)[:3]
+        y_fb = card_y1 + 250
         for linea_fb in lineas_fb:
-            draw.text((centro_x, y_fb), linea_fb, fill=(15, 23, 42), font=f_fb_prod, anchor="mm")
-            y_fb += 56
-        if precio:
-            draw.text((centro_x, card_y1 + 520), precio, fill=(22, 163, 74), font=f_fb_precio, anchor="mm")
-        if descuento:
-            draw.text((centro_x, card_y1 + 610), descuento, fill=(220, 38, 38), font=f_fb_marca, anchor="mm")
+            draw.text((centro_x, y_fb), linea_fb, fill=(15, 23, 42), font=f_fb_tit, anchor="mm")
+            y_fb += 60
 
+        draw.text(
+            (centro_x, card_y2 - 115),
+            "Toca el enlace en la bio para ver detalles",
+            fill=(100, 116, 139),
+            font=f_fb_nota,
+            anchor="mm",
+        )
+
+    # Título limpio del producto (sin duplicar en fallback)
     lineas_titulo = textwrap.wrap(titulo, width=28)[:3]
     f_titulo = cargar_fuente(FONT_BOLD_PATHS, 48)
-    y_cursor = 1125
+    y_cursor = 1105
     for linea in lineas_titulo:
         draw.text((ancho // 2, y_cursor), linea, fill=(248, 250, 252), font=f_titulo, anchor="mm")
-        y_cursor += 60
+        y_cursor += 58
 
+    # Pastilla de precio limpia
     if precio:
-        draw.rounded_rectangle([180, 1340, 900, 1475], radius=35, fill=(34, 197, 94))
-        f_precio = cargar_fuente(FONT_BOLD_PATHS, 72)
-        draw.text((ancho // 2, 1407), precio, fill=(15, 23, 42), font=f_precio, anchor="mm")
+        draw.rounded_rectangle([205, 1320, 875, 1450], radius=36, fill=(16, 185, 129))
+        f_precio = cargar_fuente(FONT_BOLD_PATHS, 70)
+        draw.text((ancho // 2, 1385), precio, fill=(255, 255, 255), font=f_precio, anchor="mm")
 
-    f_cta = cargar_fuente(FONT_BOLD_PATHS, 38)
-    f_sub = cargar_fuente(FONT_REG_PATHS, 32)
-    draw.text((ancho // 2, 1555), "LINK DIRECTO EN NUESTRA BIO", fill=(250, 204, 21), font=f_cta, anchor="mm")
-    draw.text((ancho // 2, 1610), f"Telegram: {CANAL_TELEGRAM}", fill=(148, 163, 184), font=f_sub, anchor="mm")
+    # Llamado a acción en zona segura inferior
+    f_cta = cargar_fuente(FONT_BOLD_PATHS, 36)
+    f_sub = cargar_fuente(FONT_REG_PATHS, 30)
+    draw.text((ancho // 2, 1525), "LINK EN LA BIO  •  GUARDA EL REEL", fill=(250, 204, 21), font=f_cta, anchor="mm")
+    draw.text((ancho // 2, 1580), f"Telegram: {CANAL_TELEGRAM}", fill=(148, 163, 184), font=f_sub, anchor="mm")
 
     canvas.save(ruta_salida, format="PNG")
     return True
@@ -310,7 +412,7 @@ def renderizar_video_mp4(ruta_imagen: str, ruta_voz: str, ruta_musica: str, dura
 
     filtro_video = (
         f"[0:v]scale=2160:3840:flags=lanczos,"
-        f"zoompan=z='1.0+0.04*(1-cos(PI*on/{denom}))/2'"
+        f"zoompan=z='1.0+0.035*(1-cos(PI*on/{denom}))/2'"
         f":x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
         f":d={total_frames}:s=1080x1920:fps={FPS},"
         f"fade=t=in:st=0:d=0.35,"
@@ -360,7 +462,7 @@ def renderizar_video_mp4(ruta_imagen: str, ruta_voz: str, ruta_musica: str, dura
 
 
 def armar_caption_reel(oferta: dict) -> str:
-    titulo = html.unescape((oferta.get("titulo") or "").strip())
+    titulo = limpiar_titulo_visual(oferta.get("titulo") or "")
     lineas = ["🔥 ¡OFERTA DETECTADA! 🚨", "", f"📦 {titulo}", ""]
 
     detalle = []
@@ -434,74 +536,4 @@ def _subir_y_publicar_reel(ig_user_id: str, access_token: str, ruta_mp4: str, ca
         res_st = requests.get(
             f"https://graph.facebook.com/{IG_API_VERSION}/{creation_id}",
             params={"fields": "status_code,status", "access_token": access_token},
-            timeout=20,
-        )
-        status_data = res_st.json()
-        status_code = status_data.get("status_code")
-
-        if status_code == "FINISHED":
-            break
-        if status_code in ("ERROR", "EXPIRED"):
-            print(f"[REEL] Meta rechazó el video: {status_data}")
-            return False
-    else:
-        print("[REEL] Tiempo agotado esperando procesamiento de Meta.")
-        return False
-
-    res_pub = requests.post(
-        f"https://graph.facebook.com/{IG_API_VERSION}/{ig_user_id}/media_publish",
-        data={
-            "creation_id": creation_id,
-            "access_token": access_token,
-        },
-        timeout=30,
-    )
-    data_pub = res_pub.json()
-    if "id" not in data_pub:
-        print(f"[REEL] Error publicando Reel: {data_pub}")
-        return False
-
-    print(f"[REEL] ¡Reel publicado con éxito! ID: {data_pub['id']}")
-    return True
-
-
-def publicar_reel_en_instagram(oferta: dict) -> bool:
-    ig_user_id = os.getenv("IG_USER_ID", "")
-    access_token = os.getenv("IG_ACCESS_TOKEN", "")
-    if not ig_user_id or not access_token:
-        return False
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        ruta_img = os.path.join(tmpdir, "frame.png")
-        ruta_voz = os.path.join(tmpdir, "voz.mp3")
-        ruta_mus = os.path.join(tmpdir, "musica.mp3")
-        ruta_mp4 = os.path.join(tmpdir, "reel.mp4")
-
-        if not crear_imagen_reel(oferta, ruta_img):
-            return False
-
-        try:
-            guion = generar_guion_voz(oferta)
-            duracion_voz = generar_audio_voz(guion, ruta_voz)
-        except Exception as e:
-            print(f"[REEL] Error generando voz: {e}")
-            return False
-
-        musica_lista = descargar_musica_automatica(ruta_mus)
-
-        if not renderizar_video_mp4(ruta_img, ruta_voz, musica_lista, duracion_voz, ruta_mp4):
-            return False
-
-        caption = armar_caption_reel(oferta)
-
-        for intento in range(2):
-            try:
-                if _subir_y_publicar_reel(ig_user_id, access_token, ruta_mp4, caption):
-                    return True
-            except Exception as e:
-                print(f"[REEL] Excepción al subir/publicar (intento {intento + 1}): {e}")
-            if intento == 0:
-                time.sleep(3)
-
-        return False
-        
+ 
