@@ -16,7 +16,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 IG_API_VERSION = "v27.0"
 CANAL_TELEGRAM = "@RadarDescuentosMX247"
-FPS = 25
+FPS = 30
 
 VOCES_MX = ["es-MX-DaliaNeural", "es-MX-JorgeNeural"]
 BUSQUEDAS_MUSICA = [
@@ -33,6 +33,7 @@ HEADERS_IMG = {
         "Chrome/125.0.0.0 Safari/537.36"
     ),
     "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+    "Accept-Language": "es-MX,es;q=0.9,en;q=0.8",
     "Referer": "https://www.promodescuentos.com/",
 }
 
@@ -83,7 +84,7 @@ def obtener_imagen_desde_api_ml(mlm_id: str) -> str:
             return ""
         data = resp.json()
         pictures = data.get("pictures") or []
-        if pictures and isinstance(pictures, list):
+        if isinstance(pictures, list):
             for pic in pictures:
                 if isinstance(pic, dict) and pic.get("secure_url"):
                     return pic["secure_url"].replace("http://", "https://")
@@ -120,16 +121,28 @@ def descargar_imagen_producto(oferta: dict) -> Image.Image | None:
     return None
 
 
+def limpiar_texto_para_voz(texto: str) -> str:
+    """Normaliza símbolos y signos para que Edge-TTS narre de forma fluida y natural."""
+    limpio = html.unescape(texto or "")
+    limpio = re.sub(r"https?://\S+", "", limpio)
+    limpio = limpio.replace("$", " pesos ")
+    limpio = limpio.replace("%", " por ciento ")
+    limpio = re.sub(r"[*_#~`\"“”‘’\[\]<>|]+", " ", limpio)
+    limpio = re.sub(r"\s+", " ", limpio).strip()
+    return limpio
+
+
 def generar_guion_voz(oferta: dict) -> str:
-    """Usa Gemini para redactar un guion corto en español mexicano."""
+    """Genera un guion corto con gancho directo en español mexicano usando Gemini."""
     titulo = html.unescape((oferta.get("titulo") or "").strip())
     precio = (oferta.get("precio") or "").strip()
     descuento = (oferta.get("descuento") or "").strip()
 
-    respaldo = (
-        f"Checa esta oferta en Mercado Libre: {titulo[:70]}. "
-        f"{f'A solo {precio}. ' if precio else ''}"
-        f"Encuentra el enlace directo en nuestra biografía."
+    gancho_base = f"Bajón de precio en {titulo[:65]}."
+    if descuento:
+        gancho_base = f"{descuento} en {titulo[:60]}."
+    respaldo = limpiar_texto_para_voz(
+        f"{gancho_base} {f'Queda en {precio}. ' if precio else ''}Entra al link de la bio para verlo."
     )
 
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
@@ -137,9 +150,11 @@ def generar_guion_voz(oferta: dict) -> str:
         return respaldo
 
     prompt = (
-        "Escribe un guion muy corto (máximo 22 palabras) para un Reel de ofertas en español de México, "
-        "tono dinámico y natural, sin emojis, sin asteriscos y sin comillas. "
-        "Menciona el producto, el precio/descuento si existe, y cierra invitando al link en la bio.\n"
+        "Actúa como creador de videos cortos de ofertas en México. "
+        "Escribe un guion de 18 a 25 palabras (unos 7 a 9 segundos) con un gancho fuerte en la primera frase "
+        "(sin saludos ni introducciones largas). Menciona el producto, el precio o descuento si está disponible, "
+        "y cierra invitando a revisar el enlace en la bio. "
+        "Escribe solo el texto a locutar, sin emojis, sin viñetas y sin comillas.\n"
         f"Producto: {titulo}\n"
         f"Precio: {precio or 'no especificado'}\n"
         f"Descuento: {descuento or 'no especificado'}"
@@ -153,10 +168,13 @@ def generar_guion_voz(oferta: dict) -> str:
             timeout=15,
         )
         if res.ok:
-            texto = res.json()["candidates"][0]["content"]["parts"][0]["text"]
-            limpio = re.sub(r"[*_#\"`]", "", texto).strip()
-            if 10 < len(limpio) < 260:
-                return limpio
+            candidatos = res.json().get("candidates") or []
+            if candidatos:
+                partes = candidatos[0].get("content", {}).get("parts") or []
+                if partes and partes[0].get("text"):
+                    limpio = limpiar_texto_para_voz(partes[0]["text"])
+                    if 15 <= len(limpio) <= 280:
+                        return limpio
     except Exception as e:
         print(f"[REEL] Aviso Gemini (usando guion de respaldo): {e}")
 
@@ -164,29 +182,22 @@ def generar_guion_voz(oferta: dict) -> str:
 
 
 async def _sintetizar_voz(texto: str, ruta_salida: str, voz: str):
-    communicate = edge_tts.Communicate(texto, voz, rate="+6%")
+    communicate = edge_tts.Communicate(texto, voz, rate="+8%")
     await communicate.save(ruta_salida)
 
 
 def generar_audio_voz(guion: str, ruta_voz: str) -> float:
-    """Genera el MP3 de voz con Edge-TTS y devuelve su duración en segundos."""
+    """Genera el MP3 de voz con Edge-TTS y estima su duración sin depender de ffprobe."""
     voz = random.choice(VOCES_MX)
     asyncio.run(_sintetizar_voz(guion, ruta_voz, voz))
 
-    probe = subprocess.run(
-        [
-            "ffprobe", "-v", "error",
-            "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1",
-            ruta_voz,
-        ],
-        capture_output=True,
-        text=True,
-    )
-    try:
-        return float(probe.stdout.strip())
-    except Exception:
-        return 7.0
+    if not os.path.exists(ruta_voz) or os.path.getsize(ruta_voz) == 0:
+        raise RuntimeError("Edge-TTS no generó archivo de audio válido.")
+
+    # ~13.5 caracteres por segundo en español mexicano con rate="+8%"
+    chars_utiles = max(len(guion or ""), 45)
+    duracion_estimada = round(chars_utiles / 13.5, 2)
+    return max(6.5, min(13.5, duracion_estimada))
 
 
 def descargar_musica_automatica(ruta_musica: str) -> str:
@@ -235,16 +246,20 @@ def descargar_musica_automatica(ruta_musica: str) -> str:
 
 
 def crear_imagen_reel(oferta: dict, ruta_salida: str) -> bool:
-    """Genera el cuadro 1080x1920 priorizando la foto real del producto; usa lienzo de respaldo solo si falla."""
+    """Genera el lienzo 1080x1920 priorizando la foto real del producto; usa tarjeta de respaldo solo si falla."""
     ancho, alto = 1080, 1920
     canvas = Image.new("RGB", (ancho, alto), (15, 23, 42))
     draw = ImageDraw.Draw(canvas)
 
-    draw.rounded_rectangle([140, 130, 940, 235], radius=45, fill=(239, 68, 68))
-    f_badge = cargar_fuente(FONT_BOLD_PATHS, 46)
-    draw.text((ancho // 2, 182), "OFERTA DETECTADA", fill=(255, 255, 255), font=f_badge, anchor="mm")
+    # Franja superior con gancho visual
+    descuento = (oferta.get("descuento") or "").strip().upper()
+    texto_badge = f"OFERTA {descuento}" if descuento else "OFERTA DETECTADA"
+    draw.rounded_rectangle([120, 120, 960, 225], radius=45, fill=(239, 68, 68))
+    f_badge = cargar_fuente(FONT_BOLD_PATHS, 44)
+    draw.text((ancho // 2, 172), texto_badge[:24], fill=(255, 255, 255), font=f_badge, anchor="mm")
 
-    card_x1, card_y1, card_x2, card_y2 = 90, 290, 990, 1110
+    # Tarjeta central de producto (fuera de bordes cubiertos por la UI de Reels)
+    card_x1, card_y1, card_x2, card_y2 = 100, 275, 980, 1055
     draw.rounded_rectangle([card_x1, card_y1, card_x2, card_y2], radius=40, fill=(255, 255, 255))
 
     prod_img = descargar_imagen_producto(oferta)
@@ -261,14 +276,14 @@ def crear_imagen_reel(oferta: dict, ruta_salida: str) -> bool:
         f_fb_titulo = cargar_fuente(FONT_BOLD_PATHS, 46)
         f_fb_sub = cargar_fuente(FONT_REG_PATHS, 34)
         draw.text(
-            ((card_x1 + card_x2) // 2, card_y1 + 260),
+            ((card_x1 + card_x2) // 2, card_y1 + 240),
             "MERCADO LIBRE MX",
             fill=(15, 23, 42),
             font=f_fb_titulo,
             anchor="mm",
         )
         draw.text(
-            ((card_x1 + card_x2) // 2, card_y1 + 340),
+            ((card_x1 + card_x2) // 2, card_y1 + 320),
             "OFERTA VERIFICADA",
             fill=(220, 38, 38),
             font=f_fb_sub,
@@ -276,62 +291,61 @@ def crear_imagen_reel(oferta: dict, ruta_salida: str) -> bool:
         )
         if oferta.get("precio"):
             draw.text(
-                ((card_x1 + card_x2) // 2, card_y1 + 440),
+                ((card_x1 + card_x2) // 2, card_y1 + 420),
                 str(oferta["precio"]),
                 fill=(22, 163, 74),
                 font=f_fb_titulo,
                 anchor="mm",
             )
 
-    descuento = (oferta.get("descuento") or "").strip().upper()
-    if descuento:
-        draw.rounded_rectangle([720, 260, 1010, 350], radius=30, fill=(250, 204, 21))
-        f_dto = cargar_fuente(FONT_BOLD_PATHS, 42)
-        draw.text((865, 305), descuento[:12], fill=(15, 23, 42), font=f_dto, anchor="mm")
-
+    # Título corto en zona segura media
     titulo = html.unescape((oferta.get("titulo") or "").strip())
     lineas_titulo = textwrap.wrap(titulo, width=28)[:3]
-    f_titulo = cargar_fuente(FONT_BOLD_PATHS, 50)
-    y_cursor = 1175
+    f_titulo = cargar_fuente(FONT_BOLD_PATHS, 48)
+    y_cursor = 1125
     for linea in lineas_titulo:
         draw.text((ancho // 2, y_cursor), linea, fill=(248, 250, 252), font=f_titulo, anchor="mm")
-        y_cursor += 64
+        y_cursor += 60
 
+    # Bloque de precio destacado
     precio = (oferta.get("precio") or "").strip()
     if precio:
-        draw.rounded_rectangle([190, 1405, 890, 1545], radius=35, fill=(34, 197, 94))
-        f_precio = cargar_fuente(FONT_BOLD_PATHS, 76)
-        draw.text((ancho // 2, 1475), precio, fill=(15, 23, 42), font=f_precio, anchor="mm")
+        draw.rounded_rectangle([180, 1340, 900, 1475], radius=35, fill=(34, 197, 94))
+        f_precio = cargar_fuente(FONT_BOLD_PATHS, 72)
+        draw.text((ancho // 2, 1407), precio, fill=(15, 23, 42), font=f_precio, anchor="mm")
 
-    f_cta = cargar_fuente(FONT_BOLD_PATHS, 40)
-    f_sub = cargar_fuente(FONT_REG_PATHS, 34)
-    draw.text((ancho // 2, 1630), "LINK DIRECTO EN NUESTRA BIO", fill=(250, 204, 21), font=f_cta, anchor="mm")
-    draw.text((ancho // 2, 1690), f"Telegram: {CANAL_TELEGRAM}", fill=(148, 163, 184), font=f_sub, anchor="mm")
+    # CTA ubicado por encima de la zona inferior cubierta por la interfaz de Instagram
+    f_cta = cargar_fuente(FONT_BOLD_PATHS, 38)
+    f_sub = cargar_fuente(FONT_REG_PATHS, 32)
+    draw.text((ancho // 2, 1555), "LINK DIRECTO EN NUESTRA BIO", fill=(250, 204, 21), font=f_cta, anchor="mm")
+    draw.text((ancho // 2, 1610), f"Telegram: {CANAL_TELEGRAM}", fill=(148, 163, 184), font=f_sub, anchor="mm")
 
     canvas.save(ruta_salida, format="PNG")
     return True
 
 
 def renderizar_video_mp4(ruta_imagen: str, ruta_voz: str, ruta_musica: str, duracion: float, ruta_video: str) -> bool:
-    """Combina imagen 9:16 con zoom suave + voz en primer plano + música de fondo al 14%."""
-    duracion = max(6.0, min(15.0, round(duracion + 1.2, 2)))
+    """Renderiza un MP4 vertical 1080x1920 a 30 FPS con movimiento suave, voz y música de fondo."""
+    duracion = max(6.5, min(14.0, round(duracion + 1.0, 2)))
     total_frames = int(duracion * FPS)
-    fade_out_v = max(0.5, round(duracion - 0.5, 2))
-    fade_out_a = max(0.5, round(duracion - 1.0, 2))
+    fade_out_v = max(0.5, round(duracion - 0.45, 2))
+    fade_out_a = max(0.5, round(duracion - 0.9, 2))
 
+    # Movimiento suave de acercamiento escalado a 1080x1920 a 30 FPS
     filtro_video = (
-        f"[0:v]zoompan=z='min(zoom+0.0005,1.06)'"
+        f"[0:v]scale=1080:1920,"
+        f"zoompan=z='min(1.0+0.0004*on,1.05)'"
         f":x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
         f":d={total_frames}:s=1080x1920:fps={FPS},"
         f"fade=t=in:st=0:d=0.35,"
-        f"fade=t=out:st={fade_out_v}:d=0.5,"
+        f"fade=t=out:st={fade_out_v}:d=0.45,"
         f"format=yuv420p[vout]"
     )
 
     if ruta_musica and os.path.exists(ruta_musica):
         filtro_audio = (
-            f"[1:a]adelay=300|300,volume=1.0[voz];"
-            f"[2:a]volume=0.14,afade=t=in:st=0:d=0.4,afade=t=out:st={fade_out_a}:d=1.0[mus];"
+            f"[1:a]adelay=250|250,volume=1.05[voz];"
+            f"[2:a]volume=0.13,afade=t=in:st=0:d=0.4,afade=t=out:st={fade_out_a}:d=0.9[mus];"
             f"[voz][mus]amix=inputs=2:duration=longest:normalize=0[aout]"
         )
         cmd = [
@@ -342,13 +356,13 @@ def renderizar_video_mp4(ruta_imagen: str, ruta_voz: str, ruta_musica: str, dura
             "-filter_complex", f"{filtro_video};{filtro_audio}",
             "-map", "[vout]", "-map", "[aout]",
             "-t", str(duracion),
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
             "-c:a", "aac", "-b:a", "128k", "-ar", "44100",
             "-movflags", "+faststart",
             ruta_video,
         ]
     else:
-        filtro_audio = "[1:a]adelay=300|300,apad,volume=1.0[aout]"
+        filtro_audio = "[1:a]adelay=250|250,apad,volume=1.05[aout]"
         cmd = [
             "ffmpeg", "-y",
             "-loop", "1", "-i", ruta_imagen,
@@ -356,7 +370,7 @@ def renderizar_video_mp4(ruta_imagen: str, ruta_voz: str, ruta_musica: str, dura
             "-filter_complex", f"{filtro_video};{filtro_audio}",
             "-map", "[vout]", "-map", "[aout]",
             "-t", str(duracion),
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
             "-c:a", "aac", "-b:a", "128k", "-ar", "44100",
             "-movflags", "+faststart",
             ruta_video,
@@ -385,6 +399,7 @@ def armar_caption_reel(oferta: dict) -> str:
     lineas.extend([
         "🛒 Tienda: Mercado Libre México",
         f"🔗 Link directo de compra en el enlace de nuestra bio (Telegram {CANAL_TELEGRAM}).",
+        "🔖 Guarda este Reel y compártelo si te sirve.",
         "⚠️ Los precios y disponibilidad pueden cambiar en cualquier momento.",
         "",
         "#OfertasMexico #DescuentosMX #MercadoLibre #Promociones #RadarDeDescuentosMX",
@@ -462,7 +477,7 @@ def publicar_reel_en_instagram(oferta: dict) -> bool:
                 print(f"[REEL] Error subiendo video: {data_up}")
                 return False
 
-            for _ in range(20):
+            for _ in range(24):
                 time.sleep(5)
                 res_st = requests.get(
                     f"https://graph.facebook.com/{IG_API_VERSION}/{creation_id}",
@@ -500,4 +515,4 @@ def publicar_reel_en_instagram(oferta: dict) -> bool:
         except Exception as e:
             print(f"[REEL] Excepción inesperada: {e}")
             return False
-            
+    
