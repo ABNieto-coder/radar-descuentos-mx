@@ -66,7 +66,6 @@ def _recortar_en_palabra(texto: str, max_chars: int = 48) -> str:
         return limpio
     recorte = limpio[: max_chars + 1].rsplit(" ", 1)[0].strip()
     palabras = recorte.split()
-    # Evita dejar conectores o preposiciones colgando al final (ej. "vaso de")
     conectores_finales = {"de", "del", "la", "las", "el", "los", "con", "para", "por", "y", "en", "a", "un", "una"}
     while len(palabras) > 2 and palabras[-1].lower() in conectores_finales:
         palabras.pop()
@@ -159,20 +158,35 @@ def limpiar_texto_para_voz(texto: str) -> str:
     return limpio
 
 
-def _construir_hook_respaldo(titulo: str, precio: str, descuento: str) -> str:
+def _construir_hook_respaldo(titulo: str, precio: str, descuento: str, nicho: str = "general") -> str:
     producto_limpio = _recortar_en_palabra(titulo, max_chars=44)
-    plantillas = [
-        f"Precio accesible en Mercado Libre: {producto_limpio}"
-        + (f" a {precio}." if precio else ".")
-        + " Revisa el enlace en la bio y guárdalo.",
-        f"Buen precio en Mercado Libre para {producto_limpio}"
-        + (f", con {descuento}" if descuento else "")
-        + (f" y queda en {precio}." if precio else ".")
-        + " Guárdalo y mira los detalles en la bio.",
-        f"Si buscas {producto_limpio} sin gastar de más, en Mercado Libre está"
-        + (f" a {precio}." if precio else " a buen precio.")
-        + " Revísalo en la bio con calma.",
-    ]
+    if nicho == "tecnologia":
+        plantillas = [
+            f"Dato de tecnología en Mercado Libre: {producto_limpio}"
+            + (f" a {precio}." if precio else ".")
+            + " Revisa el enlace en la bio y guárdalo.",
+            f"Si buscas equipo o accesorio tech sin gastar de más, en Mercado Libre está {producto_limpio}"
+            + (f" a {precio}." if precio else ".")
+            + " Míralo en la bio.",
+        ]
+    elif nicho == "cuidado_personal":
+        plantillas = [
+            f"Cuidado personal en Mercado Libre: {producto_limpio}"
+            + (f" a {precio}." if precio else ".")
+            + " Revisa el enlace en la bio y guárdalo.",
+            f"Buen precio en Mercado Libre para {producto_limpio}"
+            + (f" a {precio}." if precio else ".")
+            + " Guárdalo y revísalo en la bio con calma.",
+        ]
+    else:
+        plantillas = [
+            f"Precio accesible en Mercado Libre: {producto_limpio}"
+            + (f" a {precio}." if precio else ".")
+            + " Revisa el enlace en la bio y guárdalo.",
+            f"Si buscas {producto_limpio} sin gastar de más, en Mercado Libre está"
+            + (f" a {precio}." if precio else " a buen precio.")
+            + " Revísalo en la bio con calma.",
+        ]
     return limpiar_texto_para_voz(random.choice(plantillas))
 
 
@@ -180,11 +194,12 @@ def generar_guion_voz(oferta: dict) -> str:
     titulo = limpiar_titulo_visual(oferta.get("titulo") or "")
     precio = (oferta.get("precio") or "").strip()
     descuento = (oferta.get("descuento") or "").strip()
-    respaldo = _construir_hook_respaldo(titulo, precio, descuento)
+    nicho = (oferta.get("nicho") or "general").strip().lower()
+    respaldo = _construir_hook_respaldo(titulo, precio, descuento, nicho)
 
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key:
-        print(f"[REEL] Guion voz (respaldo): {respaldo}")
+        print(f"[REEL] Guion voz (respaldo/{nicho}): {respaldo}")
         return respaldo
 
     prompt = (
@@ -193,8 +208,9 @@ def generar_guion_voz(oferta: dict) -> str:
         "El tono debe ser seguro, sobrio, confiable y de buen gusto (nunca gritado ni exagerado). "
         "Empieza en el segundo 0 con un gancho claro que destaque el valor del producto a bajo precio "
         "y mencione Mercado Libre de forma natural. Termina invitando a ver el enlace de la bio y guardar el video. "
-        "No cortes nombres a medias y no uses la palabra corre. "
+        "No cortes nombres a medias y no uses la palabra corre ni curaduría. "
         "Devuelve solo el texto a locutar, sin emojis, sin asteriscos y sin comillas.\n"
+        f"Nicho: {nicho}\n"
         f"Producto: {titulo}\n"
         f"Precio: {precio or 'no especificado'}\n"
         f"Descuento: {descuento or 'no especificado'}"
@@ -214,12 +230,12 @@ def generar_guion_voz(oferta: dict) -> str:
                 if partes and partes[0].get("text"):
                     limpio = limpiar_texto_para_voz(partes[0]["text"])
                     if 20 <= len(limpio) <= 210:
-                        print(f"[REEL] Guion voz (Gemini): {limpio}")
+                        print(f"[REEL] Guion voz (Gemini/{nicho}): {limpio}")
                         return limpio
     except Exception as e:
         print(f"[REEL] Aviso Gemini (usando respaldo): {e}")
 
-    print(f"[REEL] Guion voz (respaldo): {respaldo}")
+    print(f"[REEL] Guion voz (respaldo/{nicho}): {respaldo}")
     return respaldo
 
 
@@ -383,11 +399,20 @@ def crear_imagen_reel(oferta: dict, ruta_salida: str) -> bool:
     descuento = (oferta.get("descuento") or "").strip().upper()
     precio = (oferta.get("precio") or "").strip()
     titulo = limpiar_titulo_visual(oferta.get("titulo") or "")
+    nicho = (oferta.get("nicho") or "general").strip().lower()
 
     f_marca = cargar_fuente(FONT_BOLD_PATHS, 26)
     draw.text((ancho // 2, 125), ">_ RADAR DE DESCUENTOS MX", fill=(148, 163, 184), font=f_marca, anchor="mm")
 
-    etiqueta = f"AHORRA {descuento}" if descuento else "PRECIO ACCESIBLE ML"
+    if descuento:
+        etiqueta = f"AHORRA {descuento}"
+    elif nicho == "tecnologia":
+        etiqueta = "TECH EN MERCADO LIBRE"
+    elif nicho == "cuidado_personal":
+        etiqueta = "CUIDADO PERSONAL ML"
+    else:
+        etiqueta = "PRECIO ACCESIBLE ML"
+
     draw.rounded_rectangle([265, 168, 815, 232], radius=32, fill=(20, 28, 44), outline=(0, 255, 65), width=2)
     f_badge = cargar_fuente(FONT_BOLD_PATHS, 30)
     draw.text((ancho // 2, 200), etiqueta[:26], fill=(0, 255, 65), font=f_badge, anchor="mm")
@@ -469,7 +494,6 @@ def crear_imagen_reel(oferta: dict, ruta_salida: str) -> bool:
 
 
 def renderizar_video_mp4(ruta_imagen: str, ruta_voz: str, ruta_musica: str, duracion: float, ruta_video: str) -> bool:
-    # Deja margen extra al final para que la locución cierre completa sin corte abrupto
     duracion = max(8.0, min(16.5, round(duracion + 1.6, 2)))
     total_frames = max(1, int(duracion * FPS))
     denom = max(1, total_frames - 1)
@@ -529,7 +553,13 @@ def renderizar_video_mp4(ruta_imagen: str, ruta_voz: str, ruta_musica: str, dura
 
 def armar_caption_reel(oferta: dict) -> str:
     titulo = limpiar_titulo_visual(oferta.get("titulo") or "")
-    lineas = [f"Precio accesible en Mercado Libre — {titulo}", ""]
+    nicho = (oferta.get("nicho") or "general").strip().lower()
+    etiqueta_nicho = {
+        "tecnologia": "Tecnología en Mercado Libre",
+        "cuidado_personal": "Cuidado personal en Mercado Libre",
+    }.get(nicho, "Precio accesible en Mercado Libre")
+
+    lineas = [f"{etiqueta_nicho} — {titulo}", ""]
 
     detalle = []
     if oferta.get("precio"):
