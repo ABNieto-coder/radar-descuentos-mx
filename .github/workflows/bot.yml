@@ -2,8 +2,10 @@ name: Radar de Descuentos MX
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "*/30 * * * *"
+
+concurrency:
+  group: radar-descuentos-mx-main
+  cancel-in-progress: false
 
 permissions:
   contents: write
