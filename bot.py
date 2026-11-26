@@ -7,7 +7,7 @@ import requests
 
 from reel_publisher import publicar_reel_en_instagram
 
-TOKEN = os.environ["TELEGRAM_TOKEN"]
+TOKEN = os.environ.get("TELEGRAM_TOKEN", "").strip()
 CANAL = "@RadarDescuentosMX247"
 MATT_WORD = "charlysource"
 MATT_TOOL = "29165755"
@@ -274,7 +274,7 @@ def escapar_html(texto):
     return html.escape(html.unescape(texto or "").strip())
 
 
-def buscar_ofertas_curadas():
+def buscar_ofertas_filtradas():
     ofertas = []
     vistos_corrida = set()
 
@@ -353,6 +353,10 @@ def construir_link_compartir(titulo, url_afiliado):
 
 
 def publicar_en_telegram(oferta):
+    if not TOKEN:
+        print("Error: TELEGRAM_TOKEN no configurado.")
+        return False
+
     url_afiliado = blindar_link_afiliado(oferta.get("url", ""))
     titulo_crudo = (oferta.get("titulo") or "").strip()
     if not url_afiliado or not titulo_crudo:
@@ -426,7 +430,7 @@ def publicar_en_telegram(oferta):
 
 def main():
     publicados = cargar_publicados()
-    ofertas = buscar_ofertas_curadas()
+    ofertas = buscar_ofertas_filtradas()
     enviados = 0
     listados_enviados = 0
     ig_enviados = 0
