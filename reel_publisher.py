@@ -134,11 +134,11 @@ def generar_guion_voz(oferta: dict) -> str:
     precio = (oferta.get("precio") or "").strip()
     descuento = (oferta.get("descuento") or "").strip()
 
-    gancho = f"Oferta en {titulo[:60]}."
+    gancho = f"¡Ojo a esta oferta en {titulo[:55]}!"
     if descuento:
-        gancho = f"{descuento} en {titulo[:55]}."
+        gancho = f"¡{descuento} en {titulo[:50]}!"
     respaldo = limpiar_texto_para_voz(
-        f"{gancho} {f'Precio de {precio}. ' if precio else ''}Revisa el link en la bio."
+        f"{gancho} {f'Queda en {precio}. ' if precio else ''}Corre al link de la bio y guárdalo."
     )
 
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
@@ -146,9 +146,9 @@ def generar_guion_voz(oferta: dict) -> str:
         return respaldo
 
     prompt = (
-        "Escribe un guion breve de 18 a 24 palabras en español de México para un Reel de ofertas. "
-        "Empieza directo con un gancho en la primera frase sin saludos. "
-        "Menciona el producto, el precio o descuento si existe, y cierra invitando al enlace en la bio. "
+        "Escribe un guion corto de 18 a 24 palabras en español de México para un Reel de ofertas. "
+        "Arranca en el segundo 0 con un gancho fuerte y directo (sin saludos ni rodeos). "
+        "Menciona el producto, el precio o descuento si está disponible, e invita a ir al enlace de la bio y guardar el Reel. "
         "Devuelve solo el texto a locutar, sin emojis, sin asteriscos y sin comillas.\n"
         f"Producto: {titulo}\n"
         f"Precio: {precio or 'no especificado'}\n"
@@ -361,7 +361,7 @@ def renderizar_video_mp4(ruta_imagen: str, ruta_voz: str, ruta_musica: str, dura
 
 def armar_caption_reel(oferta: dict) -> str:
     titulo = html.unescape((oferta.get("titulo") or "").strip())
-    lineas = ["🚨 ¡OFERTA DETECTADA! 🚨", "", f"📦 {titulo}", ""]
+    lineas = ["🔥 ¡OFERTA DETECTADA! 🚨", "", f"📦 {titulo}", ""]
 
     detalle = []
     if oferta.get("precio"):
@@ -374,9 +374,9 @@ def armar_caption_reel(oferta: dict) -> str:
 
     lineas.extend([
         "🛒 Tienda: Mercado Libre México",
-        f"🔗 Link directo de compra en el enlace de nuestra bio (Telegram {CANAL_TELEGRAM}).",
-        "🔖 Guarda este Reel y compártelo si te sirve.",
-        "⚠️ Los precios y disponibilidad pueden cambiar en cualquier momento.",
+        f"🔗 Enlace directo en nuestra bio y más ofertas en Telegram ({CANAL_TELEGRAM}).",
+        "🔖 Guarda este Reel y mándaselo a quien ande buscando algo así.",
+        "⚠️ Precios y stock sujetos a cambios.",
         "",
         "#OfertasMexico #DescuentosMX #MercadoLibre #Promociones #RadarDeDescuentosMX",
     ])
@@ -504,4 +504,4 @@ def publicar_reel_en_instagram(oferta: dict) -> bool:
                 time.sleep(3)
 
         return False
-                            
+        
