@@ -26,6 +26,16 @@ BUSQUEDAS_MUSICA = [
     "happy electronic loop",
 ]
 
+HEADERS_IMG = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/125.0.0.0 Safari/537.36"
+    ),
+    "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+    "Referer": "https://www.promodescuentos.com/",
+}
+
 FONT_BOLD_PATHS = [
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
@@ -48,6 +58,66 @@ def normalizar_imagen_ml(imagen_url: str) -> str:
         return ""
     url = imagen_url.replace("http://", "https://")
     return re.sub(r"-[A-Z]\.(webp|jpg|jpeg)$", "-O.jpg", url, flags=re.IGNORECASE)
+
+
+def extraer_mlm_desde_oferta(oferta: dict) -> str:
+    mlm_id = (oferta.get("mlm_id") or "").strip().upper()
+    if mlm_id:
+        return mlm_id
+    url = oferta.get("url") or ""
+    match = re.search(r"\b(MLM-?\d{6,14})\b", url, flags=re.IGNORECASE)
+    return match.group(1).upper().replace("-", "") if match else ""
+
+
+def obtener_imagen_desde_api_ml(mlm_id: str) -> str:
+    """Consulta la API pública de Mercado Libre para obtener imagen oficial sin 403."""
+    if not mlm_id:
+        return ""
+    try:
+        resp = requests.get(
+            f"https://api.mercadolibre.com/items/{mlm_id}",
+            headers={"User-Agent": "Mozilla/5.0 (compatible; RadarDescuentosMX/1.0)"},
+            timeout=10,
+        )
+        if not resp.ok:
+            return ""
+        data = resp.json()
+        pictures = data.get("pictures") or []
+        if pictures and isinstance(pictures, list):
+            for pic in pictures:
+                if isinstance(pic, dict) and pic.get("secure_url"):
+                    return pic["secure_url"].replace("http://", "https://")
+        thumb = data.get("secure_thumbnail") or data.get("thumbnail") or ""
+        if thumb:
+            return normalizar_imagen_ml(thumb)
+    except Exception as e:
+        print(f"[REEL] Aviso consultando API ML para {mlm_id}: {e}")
+    return ""
+
+
+def descargar_imagen_producto(oferta: dict) -> Image.Image | None:
+    """Descarga la imagen real del producto; si da 403 o falla, intenta vía API de ML."""
+    candidatas = []
+    img_raw = normalizar_imagen_ml(oferta.get("imagen", ""))
+    if img_raw:
+        candidatas.append(img_raw)
+
+    mlm_id = extraer_mlm_desde_oferta(oferta)
+    img_api = obtener_imagen_desde_api_ml(mlm_id)
+    if img_api and img_api not in candidatas:
+        candidatas.append(img_api)
+
+    for url in candidatas:
+        try:
+            resp = requests.get(url, headers=HEADERS_IMG, timeout=20)
+            resp.raise_for_status()
+            img = Image.open(BytesIO(resp.content)).convert("RGBA")
+            if img.width >= 80 and img.height >= 80:
+                return img
+        except Exception as e:
+            print(f"[REEL] Aviso descargando imagen ({url}): {e}")
+
+    return None
 
 
 def generar_guion_voz(oferta: dict) -> str:
@@ -149,29 +219,24 @@ def descargar_musica_automatica(ruta_musica: str) -> str:
                     if audio_res.ok and len(audio_res.content) > 5000:
                         with open(ruta_musica, "wb") as f:
                             f.write(audio_res.content)
+                        print("[REEL] Música descargada desde Freesound.")
                         return ruta_musica
         except Exception as e:
             print(f"[REEL] Aviso Freesound: {e}")
 
     locales = glob.glob("assets/*.mp3")
-    return random.choice(locales) if locales else ""
+    if locales:
+        elegida = random.choice(locales)
+        print(f"[REEL] Usando pista local: {elegida}")
+        return elegida
+
+    print("[REEL] Aviso: sin pista de música disponible, se publicará con voz y audio base.")
+    return ""
 
 
 def crear_imagen_reel(oferta: dict, ruta_salida: str) -> bool:
-    """Genera un lienzo 1080x1920 con tarjeta del producto, precio y CTA."""
+    """Genera el cuadro 1080x1920 priorizando la foto real del producto; usa lienzo de respaldo solo si falla."""
     ancho, alto = 1080, 1920
-    img_url = normalizar_imagen_ml(oferta.get("imagen", ""))
-    if not img_url:
-        return False
-
-    try:
-        resp = requests.get(img_url, timeout=20)
-        resp.raise_for_status()
-        prod_img = Image.open(BytesIO(resp.content)).convert("RGBA")
-    except Exception as e:
-        print(f"[REEL] No se pudo descargar la imagen del producto: {e}")
-        return False
-
     canvas = Image.new("RGB", (ancho, alto), (15, 23, 42))
     draw = ImageDraw.Draw(canvas)
 
@@ -182,13 +247,41 @@ def crear_imagen_reel(oferta: dict, ruta_salida: str) -> bool:
     card_x1, card_y1, card_x2, card_y2 = 90, 290, 990, 1110
     draw.rounded_rectangle([card_x1, card_y1, card_x2, card_y2], radius=40, fill=(255, 255, 255))
 
-    max_w = (card_x2 - card_x1) - 80
-    max_h = (card_y2 - card_y1) - 80
-    prod_img.thumbnail((max_w, max_h), Image.Resampling.LANCZOS)
+    prod_img = descargar_imagen_producto(oferta)
+    if prod_img is not None:
+        max_w = (card_x2 - card_x1) - 60
+        max_h = (card_y2 - card_y1) - 60
+        prod_img.thumbnail((max_w, max_h), Image.Resampling.LANCZOS)
 
-    px = card_x1 + ((card_x2 - card_x1) - prod_img.width) // 2
-    py = card_y1 + ((card_y2 - card_y1) - prod_img.height) // 2
-    canvas.paste(prod_img, (px, py), prod_img)
+        px = card_x1 + ((card_x2 - card_x1) - prod_img.width) // 2
+        py = card_y1 + ((card_y2 - card_y1) - prod_img.height) // 2
+        canvas.paste(prod_img, (px, py), prod_img)
+    else:
+        print("[REEL] Fallback visual activado: sin foto real descargable.")
+        f_fb_titulo = cargar_fuente(FONT_BOLD_PATHS, 46)
+        f_fb_sub = cargar_fuente(FONT_REG_PATHS, 34)
+        draw.text(
+            ((card_x1 + card_x2) // 2, card_y1 + 260),
+            "MERCADO LIBRE MX",
+            fill=(15, 23, 42),
+            font=f_fb_titulo,
+            anchor="mm",
+        )
+        draw.text(
+            ((card_x1 + card_x2) // 2, card_y1 + 340),
+            "OFERTA VERIFICADA",
+            fill=(220, 38, 38),
+            font=f_fb_sub,
+            anchor="mm",
+        )
+        if oferta.get("precio"):
+            draw.text(
+                ((card_x1 + card_x2) // 2, card_y1 + 440),
+                str(oferta["precio"]),
+                fill=(22, 163, 74),
+                font=f_fb_titulo,
+                anchor="mm",
+            )
 
     descuento = (oferta.get("descuento") or "").strip().upper()
     if descuento:
@@ -407,4 +500,4 @@ def publicar_reel_en_instagram(oferta: dict) -> bool:
         except Exception as e:
             print(f"[REEL] Excepción inesperada: {e}")
             return False
-  
+            
