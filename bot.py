@@ -172,7 +172,6 @@ def limpiar_titulo_para_busqueda(titulo):
 
 
 def buscar_permalink_ml_api(consulta):
-    """Consulta segura a la API pública de Mercado Libre MX con respaldo silencioso."""
     if not consulta:
         return ""
     try:
