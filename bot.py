@@ -1,4 +1,5 @@
 import html
+import json
 import os
 import re
 import xml.etree.ElementTree as ET
@@ -176,8 +177,126 @@ def limpiar_titulo_simple(titulo):
     limpio = html.unescape((titulo or "").strip())
     limpio = re.sub(r"^\s*\d+\s*°\s*[-–—:]?\s*", "", limpio)
     limpio = re.sub(r"(?i)^mercado\s*libre\s*:?\s*", "", limpio)
+    limpio = re.sub(r"\s*\|\s*MercadoLibre.*$", "", limpio, flags=re.IGNORECASE)
     limpio = re.sub(r"\s+", " ", limpio).strip()
     return limpio or "Oferta disponible"
+
+
+def formatear_precio_mxn(valor):
+    try:
+        num = float(str(valor).replace(",", "").strip())
+        if num <= 0:
+            return ""
+        if num.is_integer():
+            return f"${int(num):,}"
+        return f"${num:,.2f}"
+    except Exception:
+        return ""
+
+
+def _extraer_datos_html_ml(url_producto: str) -> dict:
+    """Respaldo ligero leyendo metadatos públicos de la ficha de Mercado Libre."""
+    datos = {}
+    if not url_producto:
+        return datos
+    try:
+        resp = requests.get(url_producto, headers=HEADERS_BROWSER, timeout=10)
+        if not resp.ok or not resp.text:
+            return datos
+        cuerpo = resp.text
+
+        m_title = re.search(
+            r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)["\']',
+            cuerpo,
+            flags=re.IGNORECASE,
+        )
+        if m_title:
+            titulo_limpio = limpiar_titulo_simple(m_title.group(1))
+            if len(titulo_limpio) >= 6:
+                datos["titulo"] = titulo_limpio
+
+        m_img = re.search(
+            r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']',
+            cuerpo,
+            flags=re.IGNORECASE,
+        )
+        if m_img:
+            img_limpia = normalizar_url(m_img.group(1))
+            if img_limpia:
+                datos["imagen"] = img_limpia
+
+        m_price = re.search(
+            r'<meta[^>]+(?:property|name)=["\'](?:product:price:amount|twitter:data1)["\'][^>]+content=["\']([^"\']+)["\']',
+            cuerpo,
+            flags=re.IGNORECASE,
+        )
+        if not m_price:
+            m_price = re.search(r'"price"\s*:\s*([0-9]+(?:\.[0-9]{1,2})?)', cuerpo)
+        if m_price:
+            precio_fmt = formatear_precio_mxn(re.sub(r"[^\d.]", "", m_price.group(1)))
+            if precio_fmt:
+                datos["precio"] = precio_fmt
+
+        m_desc = re.search(r"\b(\d{1,2}\s?%\s?OFF)\b", cuerpo, flags=re.IGNORECASE)
+        if m_desc:
+            datos["descuento"] = m_desc.group(1).upper()
+    except Exception as e:
+        print(f"Aviso leyendo metadatos HTML ML: {e}")
+
+    return datos
+
+
+def enriquecer_oferta_con_ml(oferta: dict) -> dict:
+    """Sincroniza título, precio actual, descuento e imagen desde Mercado Libre antes de publicar."""
+    if oferta.get("tier") != 1:
+        return oferta
+
+    mlm_id = (oferta.get("mlm_id") or "").strip().upper()
+    actualizado_api = False
+
+    if mlm_id:
+        try:
+            resp = requests.get(
+                f"https://api.mercadolibre.com/items/{mlm_id}",
+                headers=HEADERS_API,
+                timeout=8,
+            )
+            if resp.ok:
+                data = resp.json() if isinstance(resp.json(), dict) else {}
+                titulo_ml = limpiar_titulo_simple(data.get("title") or "")
+                if len(titulo_ml) >= 6:
+                    oferta["titulo"] = titulo_ml
+                    actualizado_api = True
+
+                precio_fmt = formatear_precio_mxn(data.get("price"))
+                if precio_fmt:
+                    oferta["precio"] = precio_fmt
+                    actualizado_api = True
+
+                original_price = data.get("original_price")
+                price = data.get("price")
+                if original_price and price and float(original_price) > float(price):
+                    pct = round((1 - (float(price) / float(original_price))) * 100)
+                    if 1 <= pct <= 95:
+                        oferta["descuento"] = f"{pct}% OFF"
+
+                pictures = data.get("pictures") or []
+                if isinstance(pictures, list) and pictures:
+                    pic_url = pictures[0].get("secure_url") if isinstance(pictures[0], dict) else ""
+                    if pic_url:
+                        oferta["imagen"] = normalizar_url(pic_url)
+                        actualizado_api = True
+        except Exception as e:
+            print(f"Aviso enriqueciendo oferta {mlm_id} desde API ML: {e}")
+
+    if not actualizado_api:
+        url_limpia = (oferta.get("url") or "").split("?")[0]
+        datos_html = _extraer_datos_html_ml(url_limpia)
+        for campo in ("titulo", "precio", "imagen", "descuento"):
+            if datos_html.get(campo):
+                oferta[campo] = datos_html[campo]
+
+    return oferta
 
 
 def buscar_permalink_ml_api(consulta):
@@ -447,6 +566,8 @@ def main():
         if guid in publicados or (mlm_id and mlm_id in publicados):
             continue
 
+        oferta = enriquecer_oferta_con_ml(oferta)
+
         if publicar_en_telegram(oferta):
             guardar_publicado(guid)
             publicados.add(guid)
@@ -456,7 +577,7 @@ def main():
             enviados += 1
             if oferta["tier"] == 2:
                 listados_enviados += 1
-            print(f"Publicado [Tier {oferta['tier']}/{oferta['origen']}]: {oferta['titulo']} -> {oferta['url']}")
+            print(f"Publicado [Tier {oferta['tier']}/{oferta['origen']}]: {oferta['titulo']} ({oferta.get('precio', '')}) -> {oferta['url']}")
 
             if oferta["tier"] == 1 and ig_enviados < MAX_POSTS_IG_POR_CORRIDA:
                 if publicar_reel_en_instagram(oferta):
