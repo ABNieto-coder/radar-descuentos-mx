@@ -1,1 +1,26 @@
+name: Prueba Instagram
 
+on:
+  workflow_dispatch:
+
+jobs:
+  test-instagram:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar requests
+        run: pip install requests
+
+      - name: Ejecutar prueba de Instagram
+        env:
+          IG_USER_ID: ${{ secrets.IG_USER_ID }}
+          IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+        run: python test_ig.py
+        
