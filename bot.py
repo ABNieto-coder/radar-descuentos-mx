@@ -60,17 +60,31 @@ PALABRAS_CERO_COMISION = (
 )
 
 PALABRAS_NICHO_TECH = (
-    "audífonos", "audifonos", "earbuds", "tws", "monitor", "ssd",
-    "disco duro", "teclado", "mouse", "smartwatch", "reloj inteligente",
-    "cargador", "power bank", "bocina", "altavoz", "webcam", "router",
-    "tarjeta gráfica", "tarjeta grafica", "procesador", "laptop", "tablet",
+    "audífonos", "audifonos", "earbuds", "tws", "diadema gamer",
+    "monitor", "ssd", "nvme", "disco duro", "disco externo",
+    "unidad de estado sólido", "unidad de estado solido",
+    "usb", "memoria usb", "pendrive", "hub usb", "adaptador usb",
+    "gamer", "gaming", "oled", "qled", "mini led", "hz",
+    "teclado", "teclado mecánico", "teclado mecanico", "mouse",
+    "smartwatch", "reloj inteligente", "banda inteligente",
+    "cargador", "cargador rápido", "cargador rapido", "power bank",
+    "bocina", "altavoz", "barra de sonido", "soundbar",
+    "webcam", "cámara web", "camara web", "router", "mesh",
+    "tarjeta gráfica", "tarjeta grafica", "gpu", "procesador",
+    "laptop", "notebook", "chromebook", "tablet", "ipad",
+    "impresora", "proyector", "micrófono", "microfono", "capturadora",
 )
 
 PALABRAS_NICHO_CUIDADO = (
-    "protector solar", "bloqueador solar", "bloqueador", "fps", "spf",
-    "sérum", "serum", "limpiador facial", "gel limpiador", "agua micelar",
-    "crema facial", "contorno de ojos", "ácido hialurónico", "acido hialuronico",
-    "niacinamida", "cuidado facial", "cuidado de la piel", "skincare",
+    "protector solar", "protectores solares", "bloqueador solar",
+    "bloqueador", "fps", "spf", "uv defender", "anthelios",
+    "sérum", "serum", "vitamina c", "retinol", "ácido salicílico",
+    "acido salicilico", "ácido hialurónico", "acido hialuronico",
+    "niacinamida", "limpiador facial", "gel limpiador",
+    "espuma limpiadora", "agua micelar", "tónico facial", "tonico facial",
+    "crema facial", "hidratante facial", "contorno de ojos",
+    "cuidado facial", "cuidado de la piel", "skincare",
+    "bálsamo labial", "balsamo labial", "desodorante", "antitranspirante",
 )
 
 
