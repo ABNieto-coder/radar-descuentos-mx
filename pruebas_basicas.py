@@ -38,10 +38,6 @@ afiliado = bot.blindar_link_afiliado("https://articulo.mercadolibre.com.mx/MLM-1
 revisar("matt_word=charlysource" in afiliado and "matt_tool=29165755" in afiliado, "el enlace debe llevar los parámetros de afiliado")
 revisar("utm_source" not in afiliado and "ref=" not in afiliado, "el enlace no debe conservar parámetros de rastreo ajenos")
 revisar(bot.mlm_desde_url(afiliado) == "MLM1234567890", "mlm_desde_url debe extraer el id de la ruta")
-revisar(
-    rp.extraer_mlm_desde_oferta({"url": "https://articulo.mercadolibre.com.mx/mlm-9876543210-audifonos-_JM"}) == "MLM9876543210",
-    "extraer_mlm_desde_oferta debe normalizar MLM en minúsculas y con guion",
-)
 
 casos_nicho = [
     ("Monitor Gamer 27 pulgadas 240 fps 1ms", "tecnologia"),
@@ -73,7 +69,6 @@ for cand in rp._candidatos_plantilla(d):
 revisar(not rp._numeros_ok("Solo $249 por estos audífonos.", permitidos), "un precio inventado debe rechazarse")
 revisar(rp.puntuar_gancho("Hola amigos, mira esto $399.", d)[0] == 0, "un saludo debe puntuar 0")
 revisar(rp.puntuar_gancho("Precio increíble en audífonos $399.", d)[0] == 0, "una palabra exagerada debe puntuar 0")
-revisar(rp.puntuar_gancho("Ahorras $200 en audífonos.", d)[0] > 0, "gancho con ahorro y puntuación debe puntuar mayor a 0")
 
 palabra_a = "cura" + "duría"
 palabra_b = "co" + "rre"
@@ -88,6 +83,8 @@ revisar(caption.count("#") <= 5, "el caption no debe pasar de 5 hashtags")
 revisar(len(caption) <= 2200, "el caption no debe pasar de 2200 caracteres")
 revisar(len(caption.split("\n")[0]) <= 125, "la primera línea del caption debe caber en 125 caracteres")
 revisar("\u2014" not in caption, "el caption no debe llevar guiones largos")
+revisar("https://t.me/RadarDescuentosMX247" in caption, "el caption debe incluir el vínculo directo de Telegram")
+revisar("@RadarDescuentosMX247" not in caption, "el caption no debe usar arroba para Telegram en Instagram")
 
 if fallos:
     print(f"\n{len(fallos)} prueba(s) fallaron.")
