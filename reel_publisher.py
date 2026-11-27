@@ -125,19 +125,15 @@ def _formatear_precio_para_voz(texto: str) -> str:
 def _expandir_abreviaturas_para_voz(texto: str) -> str:
     """Convierte abreviaturas comerciales ('pzas', 'ml', 'gr', 'kg', 'c/u') a palabras completas para TTS."""
     t = texto or ""
-    # Singular para 1 pieza
     t = re.sub(r"\b1\s*(?:pza|pz)\.?\b", "1 pieza", t, flags=re.IGNORECASE)
-    # Plural con número o suelto
     t = re.sub(r"\b(\d+)\s*(?:pzas|pzs|pza|pz)\.?\b", r"\1 piezas", t, flags=re.IGNORECASE)
     t = re.sub(r"\b(?:pzas|pzs|pza|pz)\.?\b", "piezas", t, flags=re.IGNORECASE)
-    # Unidades de medida pegadas o separadas de números
     t = re.sub(r"\b(\d+(?:\.\d+)?)\s*ml\.?\b", r"\1 mililitros", t, flags=re.IGNORECASE)
     t = re.sub(r"\b(\d+(?:\.\d+)?)\s*mg\.?\b", r"\1 miligramos", t, flags=re.IGNORECASE)
     t = re.sub(r"\b(\d+(?:\.\d+)?)\s*(?:grs|gr|g)\.?\b", r"\1 gramos", t, flags=re.IGNORECASE)
     t = re.sub(r"\b(\d+(?:\.\d+)?)\s*(?:kgs|kg)\.?\b", r"\1 kilos", t, flags=re.IGNORECASE)
     t = re.sub(r"\b(\d+(?:\.\d+)?)\s*oz\.?\b", r"\1 onzas", t, flags=re.IGNORECASE)
     t = re.sub(r"\b(\d+)\s*pk\.?\b", r"\1 paquetes", t, flags=re.IGNORECASE)
-    # Conectores abreviados comunes en títulos de Mercado Libre
     t = re.sub(r"\bc\s*/\s*u\b", "cada uno", t, flags=re.IGNORECASE)
     t = re.sub(r"\bc\s*/\s*(?=[a-záéíóúñ])", "con ", t, flags=re.IGNORECASE)
     t = re.sub(r"\bs\s*/\s*(?=[a-záéíóúñ])", "sin ", t, flags=re.IGNORECASE)
@@ -223,6 +219,26 @@ def limpiar_texto_para_voz(texto: str) -> str:
     return limpio
 
 
+def _datos_oferta(oferta: dict) -> dict:
+    """Prepara y normaliza los campos de la oferta para la locución y el Reel."""
+    titulo = limpiar_titulo_visual(oferta.get("titulo") or "")
+    precio = (oferta.get("precio") or "").strip()
+    desc_raw = (oferta.get("descuento") or "").strip()
+    desc_norm = _normalizar_descuento(desc_raw)
+    nicho = (oferta.get("nicho") or "general").strip().lower()
+    voz_precio = limpiar_texto_para_voz(precio) if precio else ""
+    voz_desc = f"{desc_norm[:-1]} por ciento de descuento" if desc_norm else ""
+    return {
+        "titulo": titulo,
+        "precio": precio,
+        "descuento": desc_raw,
+        "descuento_norm": desc_norm,
+        "nicho": nicho,
+        "voz_precio": voz_precio,
+        "voz_desc": voz_desc,
+    }
+
+
 def _puntuar_hook(guion: str, precio: str, descuento_norm: str) -> float:
     """Evalúa un guion con criterios de hookscore.py y beats.py (primeros 3s concretos)."""
     texto = (guion or "").strip()
@@ -278,10 +294,11 @@ def _construir_candidatos_hook(titulo: str, precio: str, descuento_norm: str, ni
 
 
 def generar_guion_voz(oferta: dict) -> str:
-    titulo = limpiar_titulo_visual(oferta.get("titulo") or "")
-    precio = (oferta.get("precio") or "").strip()
-    descuento_norm = _normalizar_descuento(oferta.get("descuento") or "")
-    nicho = (oferta.get("nicho") or "general").strip().lower()
+    datos = _datos_oferta(oferta)
+    titulo = datos["titulo"]
+    precio = datos["precio"]
+    descuento_norm = datos["descuento_norm"]
+    nicho = datos["nicho"]
 
     candidatos = _construir_candidatos_hook(titulo, precio, descuento_norm, nicho)
 
