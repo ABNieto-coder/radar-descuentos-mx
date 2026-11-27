@@ -134,6 +134,11 @@ def extraer_mlm_id(url):
     return match.group(1).upper().replace("-", "") if match else ""
 
 
+def mlm_desde_url(url):
+    """Extrae el identificador MLM desde una URL de producto o enlace de afiliado."""
+    return extraer_mlm_id(url)
+
+
 def es_url_producto_exacto(url):
     try:
         limpia = normalizar_url(url)
