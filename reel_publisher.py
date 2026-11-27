@@ -67,7 +67,7 @@ def cargar_fuente(rutas, tamano):
 
 
 def humanizar_texto(texto: str) -> str:
-    """Elimina caracteres Unicode invisibles, tipografía de IA, slop y palabras prohibidas."""
+    """Elimina caracteres Unicode invisibles, tipografía de IA, slop y palabras restringidas."""
     limpio = html.unescape(texto or "")
     limpio = re.sub(r"[\u200b-\u200f\u202a-\u202e\u2060\ufeff\u00ad]", "", limpio)
     limpio = limpio.replace("—", ", ").replace("–", "-").replace("…", "...")
@@ -89,7 +89,8 @@ def _recortar_en_palabra(texto: str, max_chars: int = 48) -> str:
     conectores_finales = {"de", "del", "la", "las", "el", "los", "con", "para", "por", "y", "en", "a", "un", "una"}
     while len(palabras) > 2 and palabras[-1].lower() in conectores_finales:
         palabras.pop()
-    return " ".join(palabras) if palabras else limpio[:max_chars].strip()
+    res = " ".join(palabras) if palabras else limpio[:max_chars].strip()
+    return res[:max_chars].strip()
 
 
 def limpiar_titulo_visual(titulo: str) -> str:
@@ -138,6 +139,16 @@ def _expandir_abreviaturas_para_voz(texto: str) -> str:
     t = re.sub(r"\bc\s*/\s*(?=[a-záéíóúñ])", "con ", t, flags=re.IGNORECASE)
     t = re.sub(r"\bs\s*/\s*(?=[a-záéíóúñ])", "sin ", t, flags=re.IGNORECASE)
     return t
+
+
+def _parsear_monto(valor_str: str) -> float:
+    if not valor_str:
+        return 0.0
+    limpio = re.sub(r"[^\d.]", "", str(valor_str).replace(",", ""))
+    try:
+        return float(limpio) if limpio else 0.0
+    except ValueError:
+        return 0.0
 
 
 def normalizar_imagen_ml(imagen_url: str) -> str:
@@ -220,19 +231,39 @@ def limpiar_texto_para_voz(texto: str) -> str:
 
 
 def _datos_oferta(oferta: dict) -> dict:
-    """Prepara y normaliza los campos de la oferta para la locución y el Reel."""
+    """Prepara y normaliza los campos de la oferta, ahorro y porcentaje para la locución y el Reel."""
     titulo = limpiar_titulo_visual(oferta.get("titulo") or "")
     precio = (oferta.get("precio") or "").strip()
+    precio_original = (oferta.get("precio_original") or "").strip()
     desc_raw = (oferta.get("descuento") or "").strip()
     desc_norm = _normalizar_descuento(desc_raw)
     nicho = (oferta.get("nicho") or "general").strip().lower()
+
+    val_actual = _parsear_monto(precio)
+    val_orig = _parsear_monto(precio_original)
+
+    ahorro = 0
+    if val_orig > val_actual > 0:
+        diff = val_orig - val_actual
+        ahorro = int(round(diff)) if float(diff).is_integer() else round(diff, 2)
+        if not desc_norm:
+            pct_calc = round((diff / val_orig) * 100)
+            if 1 <= pct_calc <= 95:
+                desc_norm = f"{pct_calc}%"
+
+    pct_num = desc_norm[:-1] if desc_norm else ""
+    pct_str = f"{pct_num}%" if pct_num else ""
     voz_precio = limpiar_texto_para_voz(precio) if precio else ""
-    voz_desc = f"{desc_norm[:-1]} por ciento de descuento" if desc_norm else ""
+    voz_desc = f"{pct_num} por ciento de descuento" if pct_num else ""
+
     return {
         "titulo": titulo,
         "precio": precio,
+        "precio_original": precio_original,
         "descuento": desc_raw,
         "descuento_norm": desc_norm,
+        "ahorro": ahorro,
+        "pct": pct_str,
         "nicho": nicho,
         "voz_precio": voz_precio,
         "voz_desc": voz_desc,
@@ -245,8 +276,11 @@ def _numeros_permitidos(datos_o_guion) -> set:
         partes = [
             datos_o_guion.get("titulo", ""),
             datos_o_guion.get("precio", ""),
+            datos_o_guion.get("precio_original", ""),
             datos_o_guion.get("descuento", ""),
             datos_o_guion.get("descuento_norm", ""),
+            datos_o_guion.get("ahorro", ""),
+            datos_o_guion.get("pct", ""),
             datos_o_guion.get("voz_precio", ""),
             datos_o_guion.get("voz_desc", ""),
         ]
@@ -258,7 +292,7 @@ def _numeros_permitidos(datos_o_guion) -> set:
 
 
 def _puntuar_hook(guion: str, precio: str, descuento_norm: str) -> float:
-    """Evalúa un guion con criterios de hookscore.py y beats.py (primeros 3s concretos)."""
+    """Evalúa un guion con criterios de hook score y beats (primeros 3s concretos)."""
     texto = (guion or "").strip()
     if not texto:
         return 0.0
@@ -331,7 +365,7 @@ def generar_guion_voz(oferta: dict) -> str:
             "y si mencionas descuento escríbelo como 'X% de descuento' sin usar la palabra OFF. "
             "Cero saludos, cero frases de relleno, cero signos de exclamación exagerados. "
             "La segunda oración debe ser corta e invitar a abrir el enlace en la bio y guardar el Reel. "
-            "No cortes nombres a medias y nunca uses la palabra corre ni curaduría. "
+            "No cortes nombres a medias. "
             "Devuelve solo el texto a locutar.\n"
             f"Nicho: {nicho}\n"
             f"Producto: {titulo}\n"
@@ -684,9 +718,11 @@ def armar_caption_reel(oferta: dict) -> str:
 
     bloque_valor = " ".join(p for p in (precio, descuento) if p)
     sufijo = f" ({bloque_valor}) en Mercado Libre." if bloque_valor else " en Mercado Libre."
-    max_titulo = max(28, 122 - len(sufijo))
+    max_titulo = max(20, 125 - len(sufijo))
     titulo_visible = _recortar_en_palabra(titulo, max_chars=max_titulo)
-    primera_linea = f"{titulo_visible}{sufijo}"
+    primera_linea = humanizar_texto(f"{titulo_visible}{sufijo}")
+    if len(primera_linea) > 125:
+        primera_linea = primera_linea[:125].rstrip()
 
     tags_nicho = {
         "tecnologia": ("#MercadoLibre", "#TechMexico", "#OfertasTech", "#DescuentosMX", "#RadarDeDescuentosMX"),
@@ -701,7 +737,7 @@ def armar_caption_reel(oferta: dict) -> str:
         "",
         " ".join(tags_nicho[:5]),
     ]
-    return humanizar_texto("\n".join(lineas))
+    return "\n".join(lineas)
 
 
 def _subir_y_publicar_reel(ig_user_id: str, access_token: str, ruta_mp4: str, caption: str) -> bool:
