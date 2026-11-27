@@ -59,35 +59,6 @@ PALABRAS_CERO_COMISION = (
     "croquetas", "alimento para perro", "alimento para gato", "despensa",
 )
 
-PALABRAS_NICHO_TECH = (
-    "audífonos", "audifonos", "earbuds", "tws", "diadema gamer",
-    "monitor", "ssd", "nvme", "disco duro", "disco externo",
-    "unidad de estado sólido", "unidad de estado solido",
-    "usb", "memoria usb", "pendrive", "hub usb", "adaptador usb",
-    "gamer", "gaming", "oled", "qled", "mini led", "hz",
-    "teclado", "teclado mecánico", "teclado mecanico", "mouse",
-    "smartwatch", "reloj inteligente", "banda inteligente",
-    "cargador", "cargador rápido", "cargador rapido", "power bank",
-    "bocina", "altavoz", "barra de sonido", "soundbar",
-    "webcam", "cámara web", "camara web", "router", "mesh",
-    "tarjeta gráfica", "tarjeta grafica", "gpu", "procesador",
-    "laptop", "notebook", "chromebook", "tablet", "ipad",
-    "impresora", "proyector", "micrófono", "microfono", "capturadora",
-    "cámara", "camara", "dron",
-)
-
-PALABRAS_NICHO_CUIDADO = (
-    "protector solar", "protectores solares", "bloqueador solar",
-    "bloqueador", "fps", "spf", "uv defender", "anthelios",
-    "sérum", "serum", "vitamina c", "retinol", "ácido salicílico",
-    "acido salicilico", "ácido hialurónico", "acido hialuronico",
-    "niacinamida", "limpiador facial", "gel limpiador",
-    "espuma limpiadora", "agua micelar", "tónico facial", "tonico facial",
-    "crema facial", "hidratante facial", "contorno de ojos",
-    "cuidado facial", "cuidado de la piel", "skincare",
-    "bálsamo labial", "balsamo labial", "desodorante", "antitranspirante",
-)
-
 _REGEX_CUIDADO = re.compile(
     r"\b(?:protector(?:es)?\s+solar(?:es)?|bloqueador(?:\s+solar)?|spf|"
     r"uv\s+defender|anthelios|s[eé]rum|vitamina\s+c|retinol|"
