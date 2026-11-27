@@ -5,6 +5,7 @@ import re
 import time
 import unicodedata
 import xml.etree.ElementTree as ET
+from collections import Counter
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse, unquote, quote
 
 import requests
@@ -50,6 +51,12 @@ PARAMS_A_LIMPIAR = {
     "matt_word", "matt_tool", "utm_source", "utm_medium", "utm_campaign",
     "utm_term", "utm_content", "gclid", "fbclid", "aff_id", "social_token",
     "tracking_id", "ref",
+}
+
+# Parámetros donde los acortadores o rastreadores suelen envolver la URL real de destino.
+PARAMS_REDIRECCION = {
+    "url", "u", "go", "target", "dest", "destination", "redirect",
+    "redirect_url", "redirect_uri", "next", "to", "link", "out",
 }
 
 # Un enlace de producto solo puede vivir en estos hosts de Mercado Libre México.
@@ -144,7 +151,7 @@ def guardar_publicado(clave):
 
 
 # ---------------------------------------------------------------------------
-# URLs: validación estricta
+# URLs: validación estricta y desempaquetado
 # ---------------------------------------------------------------------------
 
 def normalizar_url(url_raw):
@@ -168,6 +175,33 @@ def normalizar_url(url_raw):
     return limpia
 
 
+def desempaquetar_url(url_raw, max_profundidad=3):
+    """Extrae URLs de destino escondidas dentro de parámetros de redirección (?url=..., ?go=..., ?target=...)."""
+    actual = normalizar_url(url_raw)
+    visitadas = set()
+    for _ in range(max_profundidad):
+        if not actual or actual in visitadas:
+            break
+        visitadas.add(actual)
+        try:
+            partes = urlparse(actual)
+            qs = parse_qs(partes.query, keep_blank_values=False)
+        except ValueError:
+            break
+
+        siguiente = ""
+        for k, vals in qs.items():
+            if k.lower() in PARAMS_REDIRECCION and vals:
+                candidata = normalizar_url(vals[0])
+                if candidata and candidata not in visitadas:
+                    siguiente = candidata
+                    break
+        if not siguiente:
+            break
+        actual = siguiente
+    return actual
+
+
 def extraer_mlm_id(texto):
     match = PATRON_MLM.search(texto or "")
     return match.group(1).upper().replace("-", "") if match else ""
@@ -185,7 +219,7 @@ def es_url_producto_exacto(url):
     """True solo si la URL es la página de un producto de Mercado Libre México:
     host permitido, ruta que no sea de glosario, categorías u ofertas, y con un id MLM en la ruta."""
     try:
-        limpia = normalizar_url(url)
+        limpia = desempaquetar_url(url)
         if not limpia:
             return False
         partes = urlparse(limpia)
@@ -204,7 +238,7 @@ def es_url_producto_exacto(url):
 def destino_publicable(url, tier):
     """Última barrera antes de publicar. Nivel 1: producto exacto. Nivel 2: una búsqueda en listado.mercadolibre.com.mx."""
     try:
-        limpia = normalizar_url(url)
+        limpia = desempaquetar_url(url)
         if not limpia:
             return False
         if tier == 1:
@@ -220,7 +254,7 @@ def destino_publicable(url, tier):
 
 def blindar_link_afiliado(url_destino):
     try:
-        limpia = normalizar_url(url_destino)
+        limpia = desempaquetar_url(url_destino)
         if not limpia:
             return ""
         partes = urlparse(limpia)
@@ -265,7 +299,7 @@ def verificar_destino_vivo(url, timeout=10):
         print(f"Descartada: el producto ya no existe (HTTP {resp.status_code}) -> {base}")
         return False
     try:
-        final = normalizar_url(resp.url)
+        final = desempaquetar_url(resp.url)
         if final:
             partes = urlparse(final)
             host = (partes.netloc or "").lower().split(":")[0]
@@ -282,12 +316,15 @@ def verificar_destino_vivo(url, timeout=10):
 
 
 def extraer_urls_candidatas(texto):
-    decodificado = unquote(html.unescape(texto or ""))
+    bruto = html.unescape(texto or "")
+    # Escanea tanto el texto original como la versión decodificada para capturar URLs anidadas en query strings.
+    variantes = (bruto, unquote(bruto))
     encontrados = []
-    for match in re.findall(r"https?://[^\s\"'<>)\]]+", decodificado, flags=re.IGNORECASE):
-        limpia = normalizar_url(match)
-        if limpia and limpia not in encontrados:
-            encontrados.append(limpia)
+    for fuente in variantes:
+        for match in re.findall(r"https?://[^\s\"'<>)\]]+", fuente, flags=re.IGNORECASE):
+            for cand in (normalizar_url(match), desempaquetar_url(match)):
+                if cand and cand not in encontrados:
+                    encontrados.append(cand)
     return encontrados
 
 
@@ -295,7 +332,7 @@ def seguir_redireccion(url, timeout=10):
     try:
         resp = requests.get(url, headers=HEADERS_BROWSER, allow_redirects=True, timeout=timeout)
         if resp.status_code < 400:
-            return normalizar_url(resp.url), resp.text or ""
+            return desempaquetar_url(resp.url), resp.text or ""
     except Exception:
         pass
     return "", ""
@@ -660,12 +697,27 @@ def buscar_permalink_ml_api(consulta):
         for item in resultados:
             if not isinstance(item, dict):
                 continue
-            permalink = normalizar_url(item.get("permalink", ""))
+            permalink = desempaquetar_url(item.get("permalink", ""))
             if es_url_producto_exacto(permalink):
                 return permalink
     except Exception:
         return ""
     return ""
+
+
+def _rescatar_url_producto_desde_html(cuerpo_html, etiqueta_origen):
+    """Busca enlaces directos a producto o acortadores meli.la dentro de un bloque HTML."""
+    for interna in extraer_urls_candidatas(cuerpo_html):
+        if es_url_producto_exacto(interna):
+            return interna, 1, etiqueta_origen
+        if "meli.la/" in interna.lower():
+            final_meli, cuerpo_meli = seguir_redireccion(interna)
+            if es_url_producto_exacto(final_meli):
+                return final_meli, 1, f"{etiqueta_origen}-meli"
+            for sub in extraer_urls_candidatas(cuerpo_meli):
+                if es_url_producto_exacto(sub):
+                    return sub, 1, f"{etiqueta_origen}-meli-html"
+    return "", 0, ""
 
 
 def resolver_oferta_con_nivel(link_rss, descripcion, xml_item, titulo):
@@ -680,34 +732,33 @@ def resolver_oferta_con_nivel(link_rss, descripcion, xml_item, titulo):
             final_u, cuerpo = seguir_redireccion(cand)
             if es_url_producto_exacto(final_u):
                 return final_u, 1, "meli.la"
-            for interna in extraer_urls_candidatas(cuerpo):
-                if es_url_producto_exacto(interna):
-                    return interna, 1, "meli.la-html"
+            rescatada, nivel, origen = _rescatar_url_producto_desde_html(cuerpo, "meli.la-html")
+            if rescatada:
+                return rescatada, nivel, origen
 
     match_thread = re.search(r"-(\d{5,9})(?:[/?#]|$)", link_rss or "")
     if match_thread and "promodescuentos.com" in (link_rss or "").lower():
         thread_id = match_thread.group(1)
-        visit_url = f"https://www.promodescuentos.com/visit/threadmain/{thread_id}"
-        final_u, cuerpo = seguir_redireccion(visit_url)
-        if es_url_producto_exacto(final_u):
-            return final_u, 1, "visit"
-        for interna in extraer_urls_candidatas(cuerpo):
-            if es_url_producto_exacto(interna):
-                return interna, 1, "visit-html"
+        for endpoint, etiqueta in (
+            (f"https://www.promodescuentos.com/visit/threadmain/{thread_id}", "visit"),
+            (f"https://www.promodescuentos.com/visit/hottopic/{thread_id}", "visit-hot"),
+        ):
+            final_u, cuerpo = seguir_redireccion(endpoint)
+            if es_url_producto_exacto(final_u):
+                return final_u, 1, etiqueta
+            rescatada, nivel, origen = _rescatar_url_producto_desde_html(cuerpo, f"{etiqueta}-html")
+            if rescatada:
+                return rescatada, nivel, origen
 
     if link_rss and "promodescuentos.com" in link_rss.lower():
         _, cuerpo_post = seguir_redireccion(link_rss)
-        for interna in extraer_urls_candidatas(cuerpo_post):
-            if es_url_producto_exacto(interna):
-                return interna, 1, "post-html"
-            if "meli.la/" in interna.lower():
-                final_meli, _ = seguir_redireccion(interna)
-                if es_url_producto_exacto(final_meli):
-                    return final_meli, 1, "post-meli"
+        rescatada, nivel, origen = _rescatar_url_producto_desde_html(cuerpo_post, "post-html")
+        if rescatada:
+            return rescatada, nivel, origen
 
     titulo_bajo = (titulo or "").lower()
     if any(s in titulo_bajo for s in SENALES_LISTADO):
-        return "", 99, "descartado"
+        return "", 99, "descartado-listado"
 
     consulta = limpiar_titulo_para_busqueda(titulo)
 
@@ -747,6 +798,7 @@ def buscar_ofertas_filtradas(publicados=None):
     ofertas = []
     vistos_dedup = set()
     vistos_guid = set()
+    stats = Counter()
     inicio = time.monotonic()
     terminar = False
 
@@ -770,6 +822,7 @@ def buscar_ofertas_filtradas(publicados=None):
                 terminar = True
                 break
 
+            stats["rss_total"] += 1
             titulo = (item.findtext("title") or "").strip()
             link_rss = (item.findtext("link") or "").strip()
             guid = (item.findtext("guid") or link_rss or f"item-{idx}").strip()
@@ -777,12 +830,13 @@ def buscar_ofertas_filtradas(publicados=None):
 
             if not titulo:
                 continue
-            # Lo ya publicado o ya visto en esta ejecución no se vuelve a resolver (ahorra muchas peticiones).
             if guid in publicados or guid in vistos_guid:
+                stats["ya_publicado"] += 1
                 continue
             vistos_guid.add(guid)
 
             if re.search(r"(?i)^\s*(?:cup[oó]n\s+de\b|bonificaci[oó]n\b)", limpiar_titulo_simple(titulo)):
+                stats["cupon"] += 1
                 continue
 
             texto_bajo = f"{titulo} {descripcion} {link_rss}".lower()
@@ -791,26 +845,33 @@ def buscar_ofertas_filtradas(publicados=None):
                 and "mercadolibre" not in texto_bajo
                 and "meli.la" not in texto_bajo
             ):
+                stats["otra_tienda"] += 1
                 continue
 
+            stats["ml_detectadas"] += 1
             if any(p in texto_bajo for p in PALABRAS_CERO_COMISION):
+                stats["cero_comision"] += 1
                 continue
 
             xml_item = ET.tostring(item, encoding="unicode", method="xml") or ""
             url_cruda, tier, origen = resolver_oferta_con_nivel(link_rss, descripcion, xml_item, titulo)
             if tier > 2 or not url_cruda:
+                stats[f"sin_resolucion:{origen}"] += 1
                 continue
             if not destino_publicable(url_cruda, tier):
+                stats["destino_no_valido"] += 1
                 print(f"Descartada por destino no válido ({origen}): {url_cruda}")
                 continue
 
             url_afiliado = blindar_link_afiliado(url_cruda)
             if not url_afiliado:
+                stats["afiliado_invalido"] += 1
                 continue
 
             mlm_id = mlm_desde_url(url_afiliado)
             clave_dedup = mlm_id or guid
             if clave_dedup in vistos_dedup or (mlm_id and mlm_id in publicados):
+                stats["mlm_duplicado"] += 1
                 continue
             vistos_dedup.add(clave_dedup)
 
@@ -818,6 +879,7 @@ def buscar_ofertas_filtradas(publicados=None):
             img_match = re.search(r'src=["\'](https?://[^"\']+)["\']', descripcion)
             imagen = normalizar_url(img_match.group(1)) if img_match else ""
 
+            stats[f"aceptada_tier_{tier}"] += 1
             ofertas.append({
                 "guid": guid,
                 "mlm_id": mlm_id,
@@ -832,6 +894,8 @@ def buscar_ofertas_filtradas(publicados=None):
                 "imagen_fuente": "rss" if imagen else "",
             })
 
+    resumen_stats = ", ".join(f"{k}={v}" for k, v in sorted(stats.items()))
+    print(f"Resumen RSS: {resumen_stats or 'sin elementos'}")
     ofertas.sort(key=lambda x: (x["tier"], 0 if x["descuento"] else 1))
     return ofertas
 
