@@ -70,4 +70,3 @@ jobs:
             echo "No se pudo subir el historial tras 3 intentos."
             exit 1
           fi
-
