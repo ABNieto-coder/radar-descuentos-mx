@@ -78,7 +78,7 @@ PALABRAS_NICHO_TECH = (
 
 PALABRAS_NICHO_CUIDADO = (
     "protector solar", "protectores solares", "bloqueador solar",
-    "bloqueador", "fps", "spf", "uv defender", "anthelios",
+    "bloqueador", "spf", "uv defender", "anthelios",
     "sérum", "serum", "vitamina c", "retinol", "ácido salicílico",
     "acido salicilico", "ácido hialurónico", "acido hialuronico",
     "niacinamida", "limpiador facial", "gel limpiador",
@@ -86,6 +86,30 @@ PALABRAS_NICHO_CUIDADO = (
     "crema facial", "hidratante facial", "contorno de ojos",
     "cuidado facial", "cuidado de la piel", "skincare",
     "bálsamo labial", "balsamo labial", "desodorante", "antitranspirante",
+)
+
+_REGEX_CUIDADO = re.compile(
+    r"\b(?:protector(?:es)?\s+solar(?:es)?|bloqueador(?:\s+solar)?|spf|"
+    r"uv\s+defender|anthelios|s[eé]rum|vitamina\s+c|retinol|"
+    r"[aá]cido\s+salic[íi]lico|[aá]cido\s+hialur[oó]nico|niacinamida|"
+    r"limpiador\s+facial|gel\s+limpiador|espuma\s+limpiadora|agua\s+micelar|"
+    r"t[oó]nico\s+facial|crema\s+facial|hidratante\s+facial|contorno\s+de\s+ojos|"
+    r"cuidado\s+facial|cuidado\s+de\s+la\s+piel|skincare|b[aá]lsamo\s+labial|"
+    r"desodorante|antitranspirante)\b",
+    flags=re.IGNORECASE,
+)
+
+_REGEX_TECH = re.compile(
+    r"\b(?:aud[íi]fonos?|earbuds|tws|diadema\s+gamer|monitor|ssd|nvme|"
+    r"disco\s+duro|disco\s+externo|unidad\s+de\s+estado\s+s[óo]lido|"
+    r"usb|memoria\s+usb|pendrive|hub\s+usb|adaptador\s+usb|gamer|gaming|"
+    r"oled|qled|mini\s+led|hz|teclado(?:\s+mec[áa]nico)?|mouse|smartwatch|"
+    r"reloj\s+inteligente|banda\s+inteligente|cargador(?:\s+r[áa]pido)?|"
+    r"power\s+bank|bocina|altavoz|barra\s+de\s+sonido|soundbar|webcam|"
+    r"c[áa]mara(?:\s+web)?|router|mesh|tarjeta\s+gr[áa]fica|gpu|procesador|"
+    r"laptop|notebook|chromebook|tablet|ipad|impresora|proyector|"
+    r"micr[óo]fono|capturadora|dron)\b",
+    flags=re.IGNORECASE,
 )
 
 
@@ -479,9 +503,9 @@ def blindar_datos_oferta(oferta: dict) -> dict:
 
 def detectar_nicho_oferta(titulo: str, url: str = "") -> str:
     texto = f"{titulo or ''} {url or ''}".lower()
-    if any(p in texto for p in PALABRAS_NICHO_CUIDADO):
+    if _REGEX_CUIDADO.search(texto):
         return "cuidado_personal"
-    if any(p in texto for p in PALABRAS_NICHO_TECH):
+    if _REGEX_TECH.search(texto):
         return "tecnologia"
     return "general"
 
