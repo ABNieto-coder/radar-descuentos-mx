@@ -158,6 +158,30 @@ def es_url_producto_exacto(url):
         return False
 
 
+def destino_publicable(url, tier):
+    """Valida si una URL y nivel (tier 1 o 2) son seguros y elegibles para publicar."""
+    try:
+        if tier not in (1, 2):
+            return False
+        limpia = normalizar_url(url)
+        if not limpia:
+            return False
+        partes = urlparse(limpia)
+        host = (partes.netloc or "").lower()
+        ruta = (partes.path or "").lower()
+
+        if not (host == "mercadolibre.com.mx" or host.endswith(".mercadolibre.com.mx")):
+            return False
+        if "/glossary" in ruta:
+            return False
+
+        if tier == 1:
+            return es_url_producto_exacto(limpia)
+        return bool(ruta and ruta != "/")
+    except ValueError:
+        return False
+
+
 def blindar_link_afiliado(url_destino):
     try:
         limpia = normalizar_url(url_destino)
@@ -320,7 +344,6 @@ def _extraer_datos_html_ml(url_producto: str) -> dict:
             if img_limpia:
                 datos["imagen"] = img_limpia
 
-        # Prioriza el precio activo de oferta en meta tags o JSON embebido
         patrones_precio = (
             r'<meta[^>]+(?:property|name)=["\'](?:product:price:amount|twitter:data1)["\'][^>]+content=["\']([^"\']+)["\']',
             r'"price"\s*:\s*([0-9]+(?:\.[0-9]{1,2})?)\s*,\s*"currency_id"\s*:\s*"MXN"',
@@ -384,7 +407,6 @@ def enriquecer_oferta_con_ml(oferta: dict) -> dict:
         except Exception as e:
             print(f"Aviso enriqueciendo oferta {mlm_id} desde API ML: {e}")
 
-    # Verifica también la ficha HTML real (especialmente útil en páginas de catálogo /p/MLM... con precio promocional)
     url_limpia = (oferta.get("url") or "").split("?")[0]
     datos_html = _extraer_datos_html_ml(url_limpia)
     if datos_html.get("precio"):
@@ -591,7 +613,7 @@ def buscar_ofertas_filtradas():
 
             xml_item = ET.tostring(item, encoding="unicode", method="xml") or ""
             url_cruda, tier, origen = resolver_oferta_con_nivel(link_rss, descripcion, xml_item, titulo)
-            if tier > 2 or not url_cruda:
+            if tier > 2 or not url_cruda or not destino_publicable(url_cruda, tier):
                 continue
 
             url_afiliado = blindar_link_afiliado(url_cruda)
