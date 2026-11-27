@@ -26,7 +26,6 @@ BUSQUEDAS_MUSICA = [
     "bright happy indie pop instrumental",
 ]
 
-# Basado en humanize.py / slop.json + reglas estrictas del proyecto
 FRASES_SLOP_A_QUITAR = (
     r"\bstop\s+scrolling\b",
     r"\bfollow\s+for\s+more\b",
@@ -70,14 +69,11 @@ def cargar_fuente(rutas, tamano):
 def humanizar_texto(texto: str) -> str:
     """Elimina caracteres Unicode invisibles, tipografía de IA, slop y palabras prohibidas."""
     limpio = html.unescape(texto or "")
-    # Elimina zero-width spaces, joiners, BOM y soft hyphens
     limpio = re.sub(r"[\u200b-\u200f\u202a-\u202e\u2060\ufeff\u00ad]", "", limpio)
-    # Normaliza guiones largos y comillas curvas
     limpio = limpio.replace("—", ", ").replace("–", "-").replace("…", "...")
     limpio = limpio.replace("“", '"').replace("”", '"').replace("‘", "'").replace("’", "'")
     for patron in FRASES_SLOP_A_QUITAR:
         limpio = re.sub(patron, " ", limpio, flags=re.IGNORECASE)
-    # Reglas estrictas del proyecto: nunca usar curaduría ni corre
     limpio = re.sub(r"\bcuradur[íi]a\b", "selección", limpio, flags=re.IGNORECASE)
     limpio = re.sub(r"\bcorre\b", "entra", limpio, flags=re.IGNORECASE)
     limpio = re.sub(r"\s+([,.;:!?])", r"\1", limpio)
@@ -103,6 +99,27 @@ def limpiar_titulo_visual(titulo: str) -> str:
     limpio = humanizar_texto(limpio)
     limpio = re.sub(r"\s+", " ", limpio).strip()
     return limpio or "Selección destacada"
+
+
+def _normalizar_descuento(descuento_raw: str) -> str:
+    """Reduce cualquier formato ('25% OFF', '25 % de descuento', '25%') a '25%' si está entre 1 y 95."""
+    match = re.search(r"\b(\d{1,2})\s*%", (descuento_raw or "").strip())
+    if not match:
+        return ""
+    valor = int(match.group(1))
+    if 1 <= valor <= 95:
+        return f"{valor}%"
+    return ""
+
+
+def _formatear_precio_para_voz(texto: str) -> str:
+    """Convierte '$1,299' o '$1,299.50' en '1299 pesos' o '1299.50 pesos' para lectura natural."""
+    def _reemplazo_precio(match):
+        numero_sin_comas = match.group(1).replace(",", "")
+        return f" {numero_sin_comas} pesos "
+
+    resultado = re.sub(r"\$\s*([\d,]+(?:\.\d{1,2})?)", _reemplazo_precio, texto)
+    return resultado.replace("$", " pesos ")
 
 
 def normalizar_imagen_ml(imagen_url: str) -> str:
@@ -173,15 +190,18 @@ def descargar_imagen_producto(oferta: dict) -> Image.Image | None:
 def limpiar_texto_para_voz(texto: str) -> str:
     limpio = humanizar_texto(texto)
     limpio = re.sub(r"https?://\S+", "", limpio)
-    limpio = limpio.replace("$", " pesos ")
+    # Limpia cualquier 'OFF' suelto junto a porcentaje para evitar que se lea en inglés
+    limpio = re.sub(r"(\d{1,2})\s*%\s*off\b", r"\1 por ciento", limpio, flags=re.IGNORECASE)
+    limpio = _formatear_precio_para_voz(limpio)
     limpio = limpio.replace("%", " por ciento ")
     limpio = re.sub(r"[^\w\sáéíóúüñÁÉÍÓÚÜÑ.,!?-]", " ", limpio)
     limpio = re.sub(r"[*_#~`\"\[\]<>|]+", " ", limpio)
+    limpio = re.sub(r"\s+([,.;:!?])", r"\1", limpio)
     limpio = re.sub(r"\s+", " ", limpio).strip()
     return limpio
 
 
-def _puntuar_hook(guion: str, precio: str, descuento: str) -> float:
+def _puntuar_hook(guion: str, precio: str, descuento_norm: str) -> float:
     """Evalúa un guion con criterios de hookscore.py y beats.py (primeros 3s concretos)."""
     texto = (guion or "").strip()
     if not texto:
@@ -192,48 +212,44 @@ def _puntuar_hook(guion: str, precio: str, descuento: str) -> float:
     palabras_hook = hook.split()
     score = 50.0
 
-    # 1. Regla de <3 segundos en el hook (ideal 6 a 12 palabras)
-    if 5 <= len(palabras_hook) <= 12:
+    if 5 <= len(palabras_hook) <= 13:
         score += 20.0
-    elif len(palabras_hook) > 15:
+    elif len(palabras_hook) > 16:
         score -= 20.0
 
-    # 2. Especificidad (números, precio, descuento o Mercado Libre en el primer beat)
     if re.search(r"\d", hook):
         score += 18.0
     if "mercado libre" in hook.lower():
         score += 10.0
-    if descuento and any(tok in hook.lower() for tok in ("por ciento", "off", "ahorro")):
+    if descuento_norm and any(tok in hook.lower() for tok in ("por ciento", "descuento", "ahorro")):
         score += 8.0
 
-    # 3. Penalización por saludos o frases vacías (dealbreakers)
     if re.match(r"(?i)^(hola|qué tal|que tal|buenos días|hey|mira este video)\b", hook):
         score -= 40.0
 
-    # 4. CTA claro de guardado / bio al cierre
     if any(k in texto.lower() for k in ("bio", "guarda", "guárdalo")):
         score += 10.0
 
     return round(score, 1)
 
 
-def _construir_candidatos_hook(titulo: str, precio: str, descuento: str, nicho: str = "general") -> list[str]:
-    """Genera 3 fórmulas de hook (Dato Directo, Contraste de Valor y Revelación) según nicho."""
+def _construir_candidatos_hook(titulo: str, precio: str, descuento_norm: str, nicho: str = "general") -> list[str]:
+    """Genera 3 fórmulas de hook usando precio natural ('1299 pesos') y descuento normalizado ('25%')."""
     prod = _recortar_en_palabra(titulo, max_chars=42)
     dato_precio = f" a {precio}" if precio else ""
-    dato_desc = f" con {descuento}" if descuento else ""
+    dato_desc = f" con {descuento_norm} de descuento" if descuento_norm else ""
 
     if nicho == "tecnologia":
         c1 = f"{prod}{dato_precio}{dato_desc} en Mercado Libre. Revisa el enlace en la bio y guárdalo."
-        c2 = f"En lugar de pagar precio completo, {prod} bajó{dato_precio} en Mercado Libre. Míralo en la bio."
+        c2 = f"En lugar de pagar precio completo, {prod} bajó{dato_precio}{dato_desc} en Mercado Libre. Míralo en la bio."
         c3 = f"Equipar tu setup cuesta menos hoy: {prod}{dato_precio} en Mercado Libre. Guárdalo."
     elif nicho == "cuidado_personal":
         c1 = f"{prod}{dato_precio}{dato_desc} en Mercado Libre. Revisa el enlace en la bio y guárdalo."
-        c2 = f"Tu rutina diaria rinde más con {prod}{dato_precio} en Mercado Libre. Enlace en la bio."
+        c2 = f"Tu rutina diaria rinde más con {prod}{dato_precio}{dato_desc} en Mercado Libre. Enlace en la bio."
         c3 = f"Bajó de precio en Mercado Libre: {prod}{dato_precio}. Guárdalo y revísalo en la bio."
     else:
         c1 = f"{prod}{dato_precio}{dato_desc} en Mercado Libre. Revisa el enlace en la bio y guárdalo."
-        c2 = f"Sin gastar de más: {prod}{dato_precio} en Mercado Libre. Míralo en la bio."
+        c2 = f"Sin gastar de más: {prod}{dato_precio}{dato_desc} en Mercado Libre. Míralo en la bio."
         c3 = f"Dato real en Mercado Libre: {prod}{dato_precio}. Guárdalo para consultarlo luego."
 
     return [limpiar_texto_para_voz(c) for c in (c1, c2, c3)]
@@ -242,10 +258,10 @@ def _construir_candidatos_hook(titulo: str, precio: str, descuento: str, nicho: 
 def generar_guion_voz(oferta: dict) -> str:
     titulo = limpiar_titulo_visual(oferta.get("titulo") or "")
     precio = (oferta.get("precio") or "").strip()
-    descuento = (oferta.get("descuento") or "").strip()
+    descuento_norm = _normalizar_descuento(oferta.get("descuento") or "")
     nicho = (oferta.get("nicho") or "general").strip().lower()
 
-    candidatos = _construir_candidatos_hook(titulo, precio, descuento, nicho)
+    candidatos = _construir_candidatos_hook(titulo, precio, descuento_norm, nicho)
 
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if api_key:
@@ -253,7 +269,8 @@ def generar_guion_voz(oferta: dict) -> str:
             "Escribe un guion corto de 13 a 17 palabras en español natural de México para un Reel "
             "sobre una oferta de Mercado Libre. "
             "Regla de los 3 segundos: la primera oración debe tener máximo 10 palabras y abrir con "
-            "un dato concreto (producto, precio o porcentaje de ahorro) y Mercado Libre. "
+            "un dato concreto (producto, precio o porcentaje de descuento) y Mercado Libre. "
+            "Si mencionas descuento, escríbelo como 'X% de descuento' y nunca uses la palabra OFF. "
             "Cero saludos, cero frases de relleno, cero signos de exclamación exagerados. "
             "La segunda oración debe ser corta e invitar a abrir el enlace en la bio y guardar el Reel. "
             "No cortes nombres a medias y nunca uses la palabra corre ni curaduría. "
@@ -261,7 +278,7 @@ def generar_guion_voz(oferta: dict) -> str:
             f"Nicho: {nicho}\n"
             f"Producto: {titulo}\n"
             f"Precio: {precio or 'no especificado'}\n"
-            f"Descuento: {descuento or 'no especificado'}"
+            f"Descuento: {descuento_norm or 'no especificado'}"
         )
         try:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
@@ -281,8 +298,8 @@ def generar_guion_voz(oferta: dict) -> str:
         except Exception as e:
             print(f"[REEL] Aviso Gemini (usando selector local): {e}")
 
-    mejor_guion = max(candidatos, key=lambda g: _puntuar_hook(g, precio, descuento))
-    mejor_score = _puntuar_hook(mejor_guion, precio, descuento)
+    mejor_guion = max(candidatos, key=lambda g: _puntuar_hook(g, precio, descuento_norm))
+    mejor_score = _puntuar_hook(mejor_guion, precio, descuento_norm)
     print(f"[REEL] Guion ganador (score {mejor_score}/{nicho}): {mejor_guion}")
     return mejor_guion
 
@@ -548,7 +565,6 @@ def renderizar_video_mp4(ruta_imagen: str, ruta_voz: str, ruta_musica: str, dura
     fade_out_v = max(0.5, round(duracion - 0.45, 2))
     fade_out_a = max(0.5, round(duracion - 0.85, 2))
 
-    # Zoom dinámico + barra de progreso superior (evita cuadros estáticos >3s según beats.py)
     filtro_video = (
         f"[0:v]scale=2160:3840:flags=lanczos,"
         f"zoompan=z='1.0+0.045*(1-cos(PI*on/{denom}))/2'"
@@ -608,7 +624,6 @@ def armar_caption_reel(oferta: dict) -> str:
     descuento = (oferta.get("descuento") or "").strip()
     nicho = (oferta.get("nicho") or "general").strip().lower()
 
-    # Primera línea <= 122 caracteres para que no se corte a mitad de palabra antes de '... más'
     bloque_valor = " ".join(p for p in (precio, descuento) if p)
     sufijo = f" ({bloque_valor}) en Mercado Libre." if bloque_valor else " en Mercado Libre."
     max_titulo = max(28, 122 - len(sufijo))
