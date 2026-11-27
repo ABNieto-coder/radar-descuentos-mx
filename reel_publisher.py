@@ -239,6 +239,24 @@ def _datos_oferta(oferta: dict) -> dict:
     }
 
 
+def _numeros_permitidos(datos_o_guion) -> set:
+    """Devuelve el conjunto de números (incluyendo decimales) permitidos en el guion."""
+    if isinstance(datos_o_guion, dict):
+        partes = [
+            datos_o_guion.get("titulo", ""),
+            datos_o_guion.get("precio", ""),
+            datos_o_guion.get("descuento", ""),
+            datos_o_guion.get("descuento_norm", ""),
+            datos_o_guion.get("voz_precio", ""),
+            datos_o_guion.get("voz_desc", ""),
+        ]
+        texto = " ".join(str(p) for p in partes if p)
+    else:
+        texto = str(datos_o_guion or "")
+    limpio = texto.replace(",", "")
+    return set(re.findall(r"\d+(?:\.\d+)?", limpio))
+
+
 def _puntuar_hook(guion: str, precio: str, descuento_norm: str) -> float:
     """Evalúa un guion con criterios de hookscore.py y beats.py (primeros 3s concretos)."""
     texto = (guion or "").strip()
