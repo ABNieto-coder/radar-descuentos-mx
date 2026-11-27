@@ -78,7 +78,7 @@ PALABRAS_NICHO_TECH = (
 
 PALABRAS_NICHO_CUIDADO = (
     "protector solar", "protectores solares", "bloqueador solar",
-    "bloqueador", "spf", "uv defender", "anthelios",
+    "bloqueador", "fps", "spf", "uv defender", "anthelios",
     "sérum", "serum", "vitamina c", "retinol", "ácido salicílico",
     "acido salicilico", "ácido hialurónico", "acido hialuronico",
     "niacinamida", "limpiador facial", "gel limpiador",
