@@ -58,6 +58,7 @@ jobs:
           touch publicados.txt
           git add publicados.txt
           if [ -f reels_log.csv ]; then git add reels_log.csv; fi
+          if [ -f comentarios_respondidos.txt ]; then git add comentarios_respondidos.txt; fi
           if ! git diff --staged --quiet; then
             git commit -m "Actualiza historial de ofertas"
             for intento in 1 2 3; do
