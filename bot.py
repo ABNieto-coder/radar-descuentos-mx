@@ -22,8 +22,8 @@ MAX_LINEAS_HISTORIAL = 2000
 MAX_POSTS_POR_EJECUCION = 5
 MAX_LISTADOS_POR_EJECUCION = 1
 MAX_POSTS_IG_POR_EJECUCION = 2
-MAX_CANDIDATAS = 30             # ofertas que se resuelven como máximo por ejecución
-PRESUPUESTO_BUSQUEDA_SEG = 240  # tiempo máximo para resolver enlaces
+MAX_CANDIDATAS = 30
+PRESUPUESTO_BUSQUEDA_SEG = 240
 NICHOS_EXPERIMENTO = ("tecnologia", "cuidado_personal")
 
 RSS_URLS = [
@@ -53,13 +53,11 @@ PARAMS_A_LIMPIAR = {
     "tracking_id", "ref",
 }
 
-# Parámetros donde los acortadores o rastreadores suelen envolver la URL real de destino.
 PARAMS_REDIRECCION = {
     "url", "u", "go", "target", "dest", "destination", "redirect",
     "redirect_url", "redirect_uri", "next", "to", "link", "out",
 }
 
-# Un enlace de producto solo puede vivir en estos hosts de Mercado Libre México.
 HOSTS_PRODUCTO = {
     "mercadolibre.com.mx",
     "www.mercadolibre.com.mx",
@@ -67,7 +65,6 @@ HOSTS_PRODUCTO = {
     "m.mercadolibre.com.mx",
 }
 
-# Páginas de Mercado Libre que NO son un producto (glosario, categorías, cuentas, etc.).
 RUTAS_NO_PRODUCTO = (
     "/glossary", "/ofertas", "/listado", "/tienda/", "/c/", "/gz/", "/categorias",
     "/mas-vendidos", "/cupones", "/supermercado", "/ayuda", "/help", "/social/",
@@ -75,7 +72,6 @@ RUTAS_NO_PRODUCTO = (
     "/login", "/registration", "/promotions", "/deals", "/navigation",
 )
 
-# Si tras seguir redirecciones se llega a una de estas, el destino definitivamente no es un producto.
 RUTAS_DESTINO_MUERTO = ("/glossary", "/ofertas", "/categorias", "/mas-vendidos")
 
 SENALES_LISTADO = (
@@ -120,17 +116,12 @@ PALABRAS_NICHO_CUIDADO = (
     "bálsamo labial", "balsamo labial", "desodorante", "antitranspirante",
 )
 
-# "FPS 50" o "SPF50" es un factor de protección solar; "144 hz" y "60 fps" son datos de un monitor o consola.
-PATRON_PROTECCION_SOLAR = re.compile(r"(?<!\d)(?<!\d )(?:fps|spf)\s*[-:]?\s*\d{2,3}\+?(?!\d)")
+PATRON_PROTECCION_SOLAR = re.compile(r"(?<!\d)(?<!\d\s)(?:fps|spf)\s*[-:]?\s*\d{2,3}\+?(?!\d)")
 PATRON_DATO_TECNICO = re.compile(r"(?<!\w)\d{2,3}\s?(?:hz|fps)(?!\w)")
 
 INVISIBLES = re.compile("[\u200b\u200c\u200d\u2060\ufeff\u00ad\u2063]")
 PATRON_MLM = re.compile(r"(?<![A-Za-z0-9])(MLM-?\d{6,14})(?!\d)", re.IGNORECASE)
 
-
-# ---------------------------------------------------------------------------
-# Historial
-# ---------------------------------------------------------------------------
 
 def cargar_publicados():
     if not os.path.exists(ARCHIVO_HISTORIAL):
@@ -149,10 +140,6 @@ def guardar_publicado(clave):
         with open(ARCHIVO_HISTORIAL, "a", encoding="utf-8") as f:
             f.write(f"{clave}\n")
 
-
-# ---------------------------------------------------------------------------
-# URLs: validación estricta y desempaquetado
-# ---------------------------------------------------------------------------
 
 def normalizar_url(url_raw):
     if not url_raw:
@@ -176,7 +163,6 @@ def normalizar_url(url_raw):
 
 
 def desempaquetar_url(url_raw, max_profundidad=3):
-    """Extrae URLs de destino escondidas dentro de parámetros de redirección (?url=..., ?go=..., ?target=...)."""
     actual = normalizar_url(url_raw)
     visitadas = set()
     for _ in range(max_profundidad):
@@ -208,7 +194,6 @@ def extraer_mlm_id(texto):
 
 
 def mlm_desde_url(url):
-    """El id de producto solo se busca en la ruta, nunca en los parámetros."""
     try:
         return extraer_mlm_id(urlparse(url or "").path)
     except ValueError:
@@ -216,8 +201,6 @@ def mlm_desde_url(url):
 
 
 def es_url_producto_exacto(url):
-    """True solo si la URL es la página de un producto de Mercado Libre México:
-    host permitido, ruta que no sea de glosario, categorías u ofertas, y con un id MLM en la ruta."""
     try:
         limpia = desempaquetar_url(url)
         if not limpia:
@@ -236,7 +219,6 @@ def es_url_producto_exacto(url):
 
 
 def destino_publicable(url, tier):
-    """Última barrera antes de publicar. Nivel 1: producto exacto. Nivel 2: una búsqueda en listado.mercadolibre.com.mx."""
     try:
         limpia = desempaquetar_url(url)
         if not limpia:
@@ -284,9 +266,6 @@ def blindar_link_afiliado(url_destino):
 
 
 def verificar_destino_vivo(url, timeout=10):
-    """Visita el enlace sin parámetros de afiliado. Devuelve False solo cuando hay evidencia clara
-    de que la página no existe o de que redirige a algo que no es un producto.
-    Si Mercado Libre bloquea la consulta o hay un fallo de red, devuelve True."""
     base = (url or "").split("?")[0]
     if not base:
         return False
@@ -317,7 +296,6 @@ def verificar_destino_vivo(url, timeout=10):
 
 def extraer_urls_candidatas(texto):
     bruto = html.unescape(texto or "")
-    # Escanea tanto el texto original como la versión decodificada para capturar URLs anidadas en query strings.
     variantes = (bruto, unquote(bruto))
     encontrados = []
     for fuente in variantes:
@@ -338,10 +316,6 @@ def seguir_redireccion(url, timeout=10):
     return "", ""
 
 
-# ---------------------------------------------------------------------------
-# Limpieza de títulos y precios
-# ---------------------------------------------------------------------------
-
 def limpiar_titulo_para_busqueda(titulo):
     limpio = html.unescape(titulo or "")
     limpio = re.sub(r"^\s*\d+\s*°\s*[-–—:]?\s*", "", limpio)
@@ -359,7 +333,7 @@ def limpiar_titulo_simple(titulo):
     limpio = INVISIBLES.sub("", limpio.replace("\u00a0", " "))
     limpio = re.sub(r"^\s*\d+\s*°\s*[-–—:]?\s*", "", limpio)
     limpio = re.sub(r"(?i)^mercado\s*libre\s*:?\s*", "", limpio)
-    limpio = re.sub(r"\s*[|]\s*Mercado\s*Libre.*$", "", limpio, flags=re.IGNORECASE)
+    limpio = re.sub(r"\s*\[|\]\s*Mercado\s*Libre.*$", "", limpio, flags=re.IGNORECASE)
     limpio = re.sub(r"\$\s?[\d,]+(?:\.\d{1,2})?", " ", limpio)
     limpio = re.sub(r"\b\d{1,2}\s?%\s?(?:off|de descuento|descuento|dto)\b", " ", limpio, flags=re.IGNORECASE)
     limpio = re.sub(r"\s+[-–|:,]\s*$", "", re.sub(r"\s+", " ", limpio).strip())
@@ -420,27 +394,22 @@ def _imagen_es_valida(url_img: str) -> bool:
             for chunk in r.iter_content(chunk_size=1024):
                 if chunk:
                     primeros_bytes += chunk
-                    if len(primeros_bytes) >= 64:
-                        break
-        if len(primeros_bytes) < 32:
-            return False
-        if "image/" in ctype:
-            return True
-        return (
-            primeros_bytes[:3] == b"\xff\xd8\xff"
-            or primeros_bytes[:8] == b"\x89PNG\r\n\x1a\n"
-            or b"WEBP" in primeros_bytes[:16]
-        )
+                if len(primeros_bytes) >= 64:
+                    break
+            if len(primeros_bytes) < 32:
+                return False
+            if "image/" in ctype:
+                return True
+            return (
+                primeros_bytes[:3] == b"\xff\xd8\xff"
+                or primeros_bytes[:8] == b"\x89PNG\r\n\x1a\n"
+                or b"WEBP" in primeros_bytes[:16]
+            )
     except Exception:
         return False
 
 
-# ---------------------------------------------------------------------------
-# Datos de la página del producto
-# ---------------------------------------------------------------------------
-
 def _buscar_precio_json(nodo, profundidad=0):
-    """Busca un precio dentro de un bloque JSON-LD, empezando por la clave 'offers'."""
     if profundidad > 6:
         return ""
     if isinstance(nodo, dict):
@@ -495,7 +464,6 @@ def _extraer_datos_html_ml(url_producto: str) -> dict:
             if img_limpia:
                 datos["imagen"] = img_limpia
 
-        # 1) Priorizar JSON-LD oficial del producto (contiene el precio vigente exacto en ML)
         for bloque in re.findall(
             r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
             cuerpo,
@@ -509,7 +477,6 @@ def _extraer_datos_html_ml(url_producto: str) -> dict:
                 datos["precio"] = precio_fmt
                 break
 
-        # 2) Etiqueta meta product:price:amount o twitter:data1
         if "precio" not in datos:
             m_price = re.search(
                 r'<meta[^>]+(?:property|name)=["\'](?:product:price:amount|twitter:data1)["\'][^>]+content=["\']([^"\']+)["\']',
@@ -521,7 +488,6 @@ def _extraer_datos_html_ml(url_producto: str) -> dict:
                 if precio_fmt:
                     datos["precio"] = precio_fmt
 
-        # 3) Estado hidratado embebido en el HTML de Mercado Libre ("price":350,"original_price":499)
         if "precio" not in datos:
             m_state = re.search(
                 r'"price"\s*:\s*(\d+(?:\.\d{1,2})?)\s*,\s*"currency_id"\s*:\s*"MXN"',
@@ -587,7 +553,6 @@ def enriquecer_oferta_con_ml(oferta: dict) -> dict:
         except Exception as e:
             print(f"Aviso enriqueciendo oferta {mlm_id} desde API ML: {type(e).__name__}")
 
-    # Si la API no dio la foto del producto (o no respondió), se busca en la página del producto.
     if not api_ok or oferta.get("imagen_fuente") != "api":
         datos_html = _extraer_datos_html_ml((oferta.get("url") or "").split("?")[0])
         if datos_html.get("imagen"):
@@ -625,12 +590,10 @@ def blindar_datos_oferta(oferta: dict) -> dict:
     if precio_limpio:
         oferta["precio"] = precio_limpio
 
-    # Si el precio real ya es bastante más alto que el de la oferta, la promoción probablemente terminó.
     precio_actual = _a_pesos(oferta.get("precio"))
     if precio_rss and precio_actual and precio_actual > precio_rss * 1.10:
         oferta["descartar"] = f"el precio actual (${precio_actual:,}) supera al de la oferta (${precio_rss:,})"
         return oferta
-    # Si el precio cambió pero la API no confirma un descuento, el descuento del foro ya no es confiable.
     if (
         precio_rss and precio_actual and abs(precio_actual - precio_rss) > precio_rss * 0.10
         and not oferta.get("precio_anterior") and descuento_rss and oferta.get("descuento") == descuento_rss
@@ -672,10 +635,6 @@ def blindar_datos_oferta(oferta: dict) -> dict:
     return oferta
 
 
-# ---------------------------------------------------------------------------
-# Nicho
-# ---------------------------------------------------------------------------
-
 def _contar_coincidencias(texto, palabras):
     total = 0
     for palabra in palabras:
@@ -699,10 +658,6 @@ def detectar_nicho_oferta(titulo: str, url: str = "") -> str:
         return "tecnologia"
     return "general"
 
-
-# ---------------------------------------------------------------------------
-# Resolución de ofertas
-# ---------------------------------------------------------------------------
 
 def buscar_permalink_ml_api(consulta):
     if not consulta:
@@ -732,7 +687,6 @@ def buscar_permalink_ml_api(consulta):
 
 
 def _rescatar_url_producto_desde_html(cuerpo_html, etiqueta_origen):
-    """Busca enlaces directos a producto o acortadores meli.la dentro de un bloque HTML."""
     for interna in extraer_urls_candidatas(cuerpo_html):
         if es_url_producto_exacto(interna):
             return interna, 1, etiqueta_origen
@@ -800,7 +754,6 @@ def resolver_oferta_con_nivel(link_rss, descripcion, xml_item, titulo):
 
 
 def slug_listado(consulta):
-    """'Tenis Adidas Lightblaze' -> 'tenis-adidas-lightblaze', como los arma Mercado Libre."""
     sin_acentos = unicodedata.normalize("NFKD", consulta or "").encode("ascii", "ignore").decode("ascii")
     return re.sub(r"[^a-z0-9]+", "-", sin_acentos.lower()).strip("-")
 
@@ -926,10 +879,6 @@ def buscar_ofertas_filtradas(publicados=None):
     return ofertas
 
 
-# ---------------------------------------------------------------------------
-# Telegram
-# ---------------------------------------------------------------------------
-
 def construir_link_compartir(titulo, url_afiliado):
     titulo_limpio = limpiar_titulo_simple(titulo)
     texto = (
@@ -949,7 +898,6 @@ def _recortar_texto(texto, max_chars):
 
 
 def _telegram_post(metodo, payload, intentos=2):
-    """Envía a Telegram. Reintenta una vez si hay límite de velocidad. No imprime errores con el token."""
     for _ in range(intentos):
         try:
             r = requests.post(
@@ -989,7 +937,7 @@ def construir_caption_telegram(oferta):
     p_ahora, p_antes = _a_pesos(precio), _a_pesos(anterior)
     if anterior and p_antes > p_ahora > 0:
         lineas.append("")
-        lineas.append(f"Antes: <s>{escapar_html(anterior)}</s>  |  Ahora: <b>{escapar_html(precio)}</b>")
+        lineas.append(f"Antes: <s>{escapar_html(anterior)}</s> | Ahora: <b>{escapar_html(precio)}</b>")
         if descuento:
             lineas.append(f"Ahorras ${p_antes - p_ahora:,} ({escapar_html(descuento)})")
     elif descuento:
@@ -998,7 +946,7 @@ def construir_caption_telegram(oferta):
 
     lineas.extend([
         "",
-        f"<code>{etiqueta}</code>  Mercado Libre México  •  {CANAL}",
+        f"<code>{etiqueta}</code> Mercado Libre México • {CANAL}",
         "<i>Enlace de afiliado. Precios y disponibilidad sujetos a cambio.</i>",
     ])
     return "\n".join(lineas)[:1000]
@@ -1045,13 +993,7 @@ def publicar_en_telegram(oferta):
     })
 
 
-# ---------------------------------------------------------------------------
-# Selección de Reels y flujo principal
-# ---------------------------------------------------------------------------
-
 def elegir_para_reel(publicadas, maximo):
-    """Elige qué ofertas se convierten en Reel. Solo productos exactos con precio.
-    Prioriza los nichos del experimento y equilibra entre ellos para que la comparación sea justa."""
     conteo = contar_reels_por_nicho()
     pool = [o for o in publicadas if o.get("tier") == 1 and o.get("precio")]
     elegidas = []
@@ -1105,7 +1047,7 @@ def main():
         if oferta["tier"] == 2:
             listados += 1
 
-    publicadas = []
+    publicadas_sesion = []
     for oferta in nuevas:
         if publicar_en_telegram(oferta):
             guardar_publicado(oferta["guid"])
@@ -1113,7 +1055,7 @@ def main():
             if oferta["mlm_id"]:
                 guardar_publicado(oferta["mlm_id"])
                 publicados.add(oferta["mlm_id"])
-            publicadas.append(oferta)
+            publicadas_sesion.append(oferta)
             print(
                 f"Publicado [Tier {oferta['tier']}/{oferta['origen']}/{oferta['nicho']}]: "
                 f"{oferta['titulo']} ({oferta.get('precio', '')}) -> {oferta['url']}"
@@ -1121,12 +1063,12 @@ def main():
             time.sleep(1)
 
     ig_enviados = 0
-    for oferta in elegir_para_reel(publicadas, MAX_POSTS_IG_POR_EJECUCION):
+    for oferta in elegir_para_reel(publicadas_sesion, MAX_POSTS_IG_POR_EJECUCION):
         if publicar_reel_en_instagram(oferta):
             ig_enviados += 1
 
     print(
-        f"Ejecución terminada. Telegram: {len(publicadas)} (Listados: {listados}) | "
+        f"Ejecución terminada. Telegram: {len(publicadas_sesion)} (Listados: {listados}) | "
         f"Instagram Reels: {ig_enviados}"
     )
 
