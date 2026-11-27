@@ -39,6 +39,14 @@ revisar("matt_word=charlysource" in afiliado and "matt_tool=29165755" in afiliad
 revisar("utm_source" not in afiliado and "ref=" not in afiliado, "el enlace no debe conservar parámetros de rastreo ajenos")
 revisar(bot.mlm_desde_url(afiliado) == "MLM1234567890", "mlm_desde_url debe extraer el id de la ruta")
 
+revisar(
+    bot._oferta_tiene_desajuste_cupon_url(
+        "Cupón del 20% de 7pm a 9pm BBVA",
+        "https://articulo.mercadolibre.com.mx/MLM-3038848061-nike-aura-mochila-negra-24-l-_JM",
+    ),
+    "debe detectar desajuste entre cupón bancario y ruta de mochila",
+)
+
 casos_nicho = [
     ("Monitor Gamer 27 pulgadas 240 fps 1ms", "tecnologia"),
     ("Monitor 144 Hz curvo", "tecnologia"),
@@ -53,6 +61,8 @@ for titulo, esperado in casos_nicho:
 
 revisar(rp.limpiar_texto_para_voz("Cuesta $1,299.50") == "Cuesta 1299 pesos con 50", "precio con decimales para la voz")
 revisar(rp.limpiar_texto_para_voz("Cuesta $2,000") == "Cuesta 2000 pesos", "precio entero para la voz")
+revisar(rp.limpiar_texto_para_voz("Monitor 27 2K") == "Monitor 27 dos ka", "2K debe expandirse a dos ka y no a Kelvin")
+revisar("Pago HSBC" not in rp.limpiar_titulo_visual("Monitor 27 2K Pago HSBC]"), "debe limpiar sufijos de pago y corchetes")
 revisar(rp._normalizar_descuento("25% OFF") == "25%", "descuento '25% OFF'")
 revisar(rp._normalizar_descuento("25 % de descuento") == "25%", "descuento '25 % de descuento'")
 revisar(rp._normalizar_descuento("120%") == "", "descuento fuera de rango")
@@ -85,6 +95,7 @@ revisar(len(caption.split("\n")[0]) <= 125, "la primera línea del caption debe 
 revisar("\u2014" not in caption, "el caption no debe llevar guiones largos")
 revisar("https://t.me/RadarDescuentosMX247" in caption, "el caption debe incluir el vínculo directo de Telegram")
 revisar("@RadarDescuentosMX247" not in caption, "el caption no debe usar arroba para Telegram en Instagram")
+revisar(rp.armar_comentario_telegram() == "https://t.me/RadarDescuentosMX247", "el primer comentario debe ser únicamente el link de Telegram")
 
 if fallos:
     print(f"\n{len(fallos)} prueba(s) fallaron.")
