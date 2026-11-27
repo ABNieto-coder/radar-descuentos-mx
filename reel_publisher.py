@@ -127,7 +127,19 @@ def _quitar_palabra_prohibida(texto: str) -> str:
     return re.sub(r"\s+", " ", limpio).strip()
 
 
-CONECTORES_FINALES = {"de", "del", "la", "las", "el", "los", "con", "sin", "para", "por", "y", "en", "a", "al", "un", "una", "o", "e", "ni", "que"}
+CONECTORES_FINALES = {
+    "de", "del", "la", "las", "el", "los", "con", "sin", "para", "por",
+    "y", "en", "a", "al", "un", "una", "o", "e", "ni", "que",
+}
+
+RUIDO_PROMO_TITULO = re.compile(
+    r"(?i)(?:"
+    r"\$\s?[\d,]+(?:\.\d{1,2})?"
+    r"|\b\d{1,3}\s?%\s?(?:off|de descuento|descuento|dto)\b"
+    r"|\b(?:env[ií]o\s+gratis|full|msi|meses\s+sin\s+intereses|cup[oó]n\s+aplicado|con\s+cup[oó]n)\b"
+    r"|\b(?:color|modelo|talla|tama[ñn]o)\s*:\s*[^|,/]+"
+    r")"
+)
 
 
 def _quitar_conectores_finales(palabras):
@@ -146,20 +158,40 @@ def _recortar_en_palabra(texto: str, max_chars: int = 48) -> str:
     return " ".join(palabras) if palabras else limpio[:max_chars].strip()
 
 
+def _deduplicar_palabras_consecutivas(texto: str) -> str:
+    """Elimina repeticiones típicas de títulos SEO de Mercado Libre (ej. 'Sony Sony WH-1000XM5')."""
+    palabras = (texto or "").split()
+    if not palabras:
+        return ""
+    resultado = [palabras[0]]
+    for p in palabras[1:]:
+        if p.lower().strip(",.;:-") != resultado[-1].lower().strip(",.;:-"):
+            resultado.append(p)
+    return " ".join(resultado)
+
+
 def limpiar_titulo_visual(titulo: str) -> str:
     limpio = _limpiar_basico(titulo)
     limpio = re.sub(r"^\s*\d+\s*°\s*[-:]?\s*", "", limpio)
     limpio = re.sub(r"(?i)^mercado\s*libre\s*:?\s*", "", limpio)
+    limpio = re.sub(r"\s*[|]\s*Mercado\s*Libre.*$", "", limpio, flags=re.IGNORECASE)
+    limpio = RUIDO_PROMO_TITULO.sub(" ", limpio)
     limpio = _quitar_palabra_prohibida(limpio)
+    limpio = re.sub(r"\s*[-–|:,/]+\s*$", "", limpio)
+    limpio = re.sub(r"^\s*[-–|:,/]+\s*", "", limpio)
+    limpio = re.sub(r"\s+", " ", limpio).strip()
+    limpio = _deduplicar_palabras_consecutivas(limpio)
     return limpio or "Selección destacada"
 
 
 def _nombre_corto(titulo: str, max_palabras: int = 4, max_chars: int = 34) -> str:
     """Nombre del producto que cabe en el gancho hablado y en la tarjeta de pantalla."""
-    sin_parentesis = re.sub(r"\([^)]*\)", " ", titulo or "")
-    palabras = re.sub(r"\s+", " ", sin_parentesis).strip().split()
-    corto = " ".join(_quitar_conectores_finales(palabras[:max_palabras])).strip(" ,.;:-")
-    corto = _recortar_en_palabra(corto, max_chars)
+    sin_parentesis = re.sub(r"\([^)]*\)|\[[^\]]*\]", " ", titulo or "")
+    sin_ruido = RUIDO_PROMO_TITULO.sub(" ", sin_parentesis)
+    palabras = re.sub(r"\s+", " ", sin_ruido).strip().split()
+    palabras = _deduplicar_palabras_consecutivas(" ".join(palabras)).split()
+    corto = " ".join(_quitar_conectores_finales(palabras[:max_palabras])).strip(" ,.;:-/")
+    corto = _recortar_en_palabra(corto, max_chars).strip(" ,.;:-/")
     return corto or (titulo or "este producto")
 
 
@@ -204,7 +236,7 @@ def obtener_imagen_desde_api_ml(mlm_id: str) -> str:
         if thumb:
             return normalizar_imagen_ml(thumb)
     except Exception as e:
-        print(f"[REEL] Aviso consultando API ML para {mlm_id}: {e}")
+        print(f"[REEL] Aviso consultando API ML para {mlm_id}: {type(e).__name__}")
     return ""
 
 
@@ -229,7 +261,7 @@ def descargar_imagen_producto(oferta: dict):
             if img.width >= 60 and img.height >= 60:
                 return img
         except Exception as e:
-            print(f"[REEL] Aviso descargando imagen ({url}): {e}")
+            print(f"[REEL] Aviso descargando imagen: {type(e).__name__}")
 
     return None
 
@@ -280,7 +312,7 @@ def limpiar_texto_para_voz(texto: str) -> str:
     limpio = limpio.replace("$", " pesos ")
     limpio = limpio.replace("%", " por ciento ")
     limpio = re.sub(r"[^\w\sáéíóúüñÁÉÍÓÚÜÑ.,!?-]", " ", limpio)
-    limpio = re.sub(r"[*_#~`\"“”‘’\[\]<>|]+", " ", limpio)
+    limpio = re.sub(r'[*_#~`"\u201c\u201d\u2018\u2019\[\]<>|]+', " ", limpio)
     limpio = re.sub(r"\s+([.,!?])", r"\1", limpio)
     limpio = re.sub(r"\s+", " ", limpio).strip()
     return limpio
@@ -313,7 +345,10 @@ def _datos_oferta(oferta: dict) -> dict:
         if 1 <= calculado <= 95:
             pct = f"{calculado}%"
 
-    palabras_producto = [p for p in re.findall(r"\w+", producto.lower()) if len(p) > 3][:3]
+    palabras_producto = [
+        p for p in re.findall(r"\w+", producto.lower())
+        if len(p) > 3 and p not in CONECTORES_FINALES
+    ][:3]
 
     return {
         "titulo": titulo,
@@ -352,13 +387,13 @@ def _pantalla_por_defecto(d: dict) -> list:
 
 
 def _candidatos_plantilla(d: dict) -> list:
-    """Ganchos con datos reales. Cada uno usa una fórmula distinta y siempre hay al menos uno."""
+    """Ganchos con datos reales, breves (<= 8 palabras) y con el dato clave al inicio."""
     prod = d["producto"]
     candidatos = []
     if d["precio"] and d["anterior"]:
         candidatos.append({
             "formula": "Antes y ahora",
-            "hablado": f"Antes costaba {d['anterior_txt']}, ahora {d['precio_txt']}.",
+            "hablado": f"Antes {d['anterior_txt']}, ahora {d['precio_txt']} en {prod}.",
             "pantalla": [f"ANTES {d['anterior_txt']}", f"AHORA {d['precio_txt']}"],
         })
     if d["ahorro"] >= 50:
@@ -375,19 +410,19 @@ def _candidatos_plantilla(d: dict) -> list:
         })
         candidatos.append({
             "formula": "Dirigido",
-            "hablado": f"Si buscas {prod}, ahora está en {d['precio_txt']}.",
+            "hablado": f"{prod} baja a {d['precio_txt']}.",
             "pantalla": [d["precio_txt"], prod.upper()],
         })
     if d["pct"]:
         candidatos.append({
             "formula": "Descuento",
-            "hablado": f"{d['pct']} de descuento en {prod}.",
+            "hablado": f"{d['pct']} menos en {prod}.",
             "pantalla": [f"{d['pct']} DE DESCUENTO", prod.upper()],
         })
     if not candidatos:
         candidatos.append({
             "formula": "Sin dato",
-            "hablado": f"{prod}, con buen precio en Mercado Libre.",
+            "hablado": f"{prod} en oferta hoy.",
             "pantalla": [prod.upper()],
         })
     return candidatos
@@ -396,12 +431,12 @@ def _candidatos_plantilla(d: dict) -> list:
 def _normalizar_candidato_gemini(item, d: dict, permitidos: set):
     if not isinstance(item, dict):
         return None
-    hablado = _quitar_palabra_prohibida(_limpiar_basico(str(item.get("hablado") or ""))).strip('"“” ')
+    hablado = _quitar_palabra_prohibida(_limpiar_basico(str(item.get("hablado") or ""))).strip('"\u201c\u201d ')
     if not hablado or "http" in hablado.lower():
         return None
     if hablado[-1] not in ".!?":
         hablado += "."
-    if len(hablado.split()) > 14 or not _numeros_ok(hablado, permitidos):
+    if len(hablado.split()) > 12 or not _numeros_ok(hablado, permitidos):
         return None
 
     pantalla = item.get("pantalla")
@@ -451,7 +486,7 @@ def _candidatos_gemini(d: dict) -> list:
         "4. Descuento: abre con el porcentaje (solo si hay descuento)\n"
         "5. Dirigido: le habla a quien busca ese producto\n\n"
         "Reglas:\n"
-        "- hablado: máximo 10 palabras, termina en punto y se dice en menos de 3 segundos. "
+        "- hablado: máximo 9 palabras, termina en punto y se dice en menos de 2.5 segundos. "
         "Abre con el dato concreto (precio, ahorro o porcentaje) o con el producto.\n"
         "- Sin saludos, sin 'en este video', sin 'mira esto' y sin exagerar con palabras como "
         "'increíble' o 'imperdible'.\n"
@@ -476,7 +511,7 @@ def _candidatos_gemini(d: dict) -> list:
             timeout=20,
         )
         if not res.ok:
-            print(f"[REEL] Aviso Gemini HTTP {res.status_code}: {res.text[:200]}")
+            print(f"[REEL] Aviso Gemini HTTP {res.status_code}")
             return []
         candidatos = res.json().get("candidates") or []
         partes = (candidatos[0].get("content", {}).get("parts") or []) if candidatos else []
@@ -493,7 +528,7 @@ def _candidatos_gemini(d: dict) -> list:
                 salida.append(cand)
         return salida
     except Exception as e:
-        print(f"[REEL] Aviso Gemini (se usan solo plantillas): {e}")
+        print(f"[REEL] Aviso Gemini (se usan solo plantillas): {type(e).__name__}")
         return []
 
 
@@ -527,18 +562,24 @@ def puntuar_gancho(hablado: str, d: dict):
         adelanto += 20
 
     direccion = 100 if re.search(r"\b(ahorras|buscas|tu|tus|te|ti|llévate|llevate)\b", bajo) else 0
-    ganancia = 100 if re.search(r"\b(ahorras|antes|descuento|menos|ahora)\b", bajo) else 0
+    ganancia = 100 if re.search(r"\b(ahorras|antes|descuento|menos|ahora|baja)\b", bajo) else 0
 
     puntaje = 0.30 * especificidad + 0.25 * adelanto + 0.15 * direccion + 0.20 * ganancia + 0.10 * 100
     return round(puntaje, 1), ""
 
 
 def elegir_gancho(d: dict) -> dict:
-    """Junta ganchos de plantilla y de Gemini, los puntúa y sortea entre los mejores.
+    """Junta ganchos de plantilla y de Gemini, los puntúa, deduplica y sortea entre los mejores.
     El sorteo deja registro de qué fórmula se usó para comparar resultados después."""
-    candidatos = _candidatos_plantilla(d) + _candidatos_gemini(d)
-    for c in candidatos:
-        c["puntaje"], c["motivo"] = puntuar_gancho(c["hablado"], d)
+    crudos = _candidatos_plantilla(d) + _candidatos_gemini(d)
+    vistos = set()
+    candidatos = []
+    for c in crudos:
+        clave = re.sub(r"\s+", " ", (c.get("hablado") or "").lower().strip())
+        if clave and clave not in vistos:
+            vistos.add(clave)
+            c["puntaje"], c["motivo"] = puntuar_gancho(c["hablado"], d)
+            candidatos.append(c)
 
     resumen = " | ".join(f"{c['puntaje']:.0f} {c['formula']}" for c in candidatos)
     print(f"[REEL] Ganchos puntuados: {resumen}")
@@ -825,7 +866,7 @@ def _obtener_duracion_real_audio(ruta_voz: str, texto_respaldo: str) -> float:
             if dur > 0:
                 return round(dur, 2)
     except Exception as e:
-        print(f"[REEL] Aviso ffprobe en audio (usando estimación): {e}")
+        print(f"[REEL] Aviso ffprobe en audio (usando estimación): {type(e).__name__}")
 
     chars_utiles = max(len(texto_respaldo or ""), 50)
     return round(chars_utiles / 11.5, 2)
@@ -876,7 +917,7 @@ def descargar_musica_automatica(ruta_musica: str) -> str:
             else:
                 print(f"[REEL] Aviso Freesound HTTP {res.status_code}")
         except Exception as e:
-            print(f"[REEL] Aviso Freesound: {e}")
+            print(f"[REEL] Aviso Freesound: {type(e).__name__}")
 
     locales = glob.glob("assets/*.mp3")
     if locales:
@@ -1018,7 +1059,7 @@ def registrar_reel_log(oferta: dict, d: dict, gancho: dict, media_id: str):
                 media_id,
             ])
     except Exception as e:
-        print(f"[REEL] Aviso escribiendo bitácora: {e}")
+        print(f"[REEL] Aviso escribiendo bitácora: {type(e).__name__}")
 
 
 def contar_reels_por_nicho(ultimos: int = 200) -> Counter:
@@ -1031,7 +1072,7 @@ def contar_reels_por_nicho(ultimos: int = 200) -> Counter:
         for fila in filas[-ultimos:]:
             conteo[(fila.get("nicho") or "general").strip()] += 1
     except Exception as e:
-        print(f"[REEL] Aviso leyendo bitácora: {e}")
+        print(f"[REEL] Aviso leyendo bitácora: {type(e).__name__}")
     return conteo
 
 
@@ -1060,7 +1101,8 @@ def _subir_y_publicar_reel(ig_user_id: str, access_token: str, ruta_mp4: str, ca
     )
     data_init = res_init.json()
     if "id" not in data_init:
-        print(f"[REEL] Error iniciando contenedor: {data_init}")
+        err = data_init.get("error", {}) if isinstance(data_init, dict) else {}
+        print(f"[REEL] Error iniciando contenedor: code={err.get('code')} msg={err.get('message', '')}")
         return ""
 
     creation_id = data_init["id"]
@@ -1084,10 +1126,10 @@ def _subir_y_publicar_reel(ig_user_id: str, access_token: str, ruta_mp4: str, ca
     try:
         data_up = res_up.json()
     except Exception:
-        data_up = {"raw": res_up.text[:300]}
+        data_up = {}
 
     if not res_up.ok or data_up.get("success") is False:
-        print(f"[REEL] Error subiendo video (HTTP {res_up.status_code}): {data_up}")
+        print(f"[REEL] Error subiendo video (HTTP {res_up.status_code})")
         return ""
 
     for _ in range(24):
@@ -1100,14 +1142,14 @@ def _subir_y_publicar_reel(ig_user_id: str, access_token: str, ruta_mp4: str, ca
             )
             status_data = res_st.json()
         except Exception as e:
-            print(f"[REEL] Aviso consultando estado del contenedor: {e}")
+            print(f"[REEL] Aviso consultando estado del contenedor: {type(e).__name__}")
             continue
 
         status_code = status_data.get("status_code")
         if status_code == "FINISHED":
             break
         if status_code in ("ERROR", "EXPIRED"):
-            print(f"[REEL] Meta rechazó el video: {status_data}")
+            print(f"[REEL] Meta rechazó el video: {status_code}")
             return ""
     else:
         print("[REEL] Tiempo agotado esperando procesamiento de Meta.")
@@ -1123,7 +1165,8 @@ def _subir_y_publicar_reel(ig_user_id: str, access_token: str, ruta_mp4: str, ca
     )
     data_pub = res_pub.json()
     if "id" not in data_pub:
-        print(f"[REEL] Error publicando Reel: {data_pub}")
+        err = data_pub.get("error", {}) if isinstance(data_pub, dict) else {}
+        print(f"[REEL] Error publicando Reel: code={err.get('code')} msg={err.get('message', '')}")
         return ""
 
     print(f"[REEL] ¡Reel publicado con éxito! ID: {data_pub['id']}")
@@ -1150,13 +1193,13 @@ def preparar_reel(oferta: dict, carpeta: str, ruta_mp4: str = "") -> dict:
     try:
         rutas_escenas = crear_escenas(d, gancho, oferta, carpeta)
     except Exception as e:
-        print(f"[REEL] Error creando escenas: {e}")
+        print(f"[REEL] Error creando escenas: {type(e).__name__}")
         return None
 
     try:
         duracion_voz = generar_audio_voz(guion["voz"], ruta_voz)
     except Exception as e:
-        print(f"[REEL] Error generando voz: {e}")
+        print(f"[REEL] Error generando voz: {type(e).__name__}")
         return None
 
     musica = descargar_musica_automatica(ruta_mus)
@@ -1192,7 +1235,7 @@ def publicar_reel_en_instagram(oferta: dict) -> bool:
                     registrar_reel_log(oferta, reel["datos"], reel["gancho"], media_id)
                     return True
             except Exception as e:
-                print(f"[REEL] Excepción al subir/publicar (intento {intento + 1}): {e}")
+                print(f"[REEL] Excepción al subir/publicar (intento {intento + 1}): {type(e).__name__}")
             if intento == 0:
                 time.sleep(3)
 
