@@ -256,7 +256,7 @@ def blindar_link_afiliado(url_destino):
         return urlunparse((
             "https",
             host,
-            quote(partes.path or "/", safe="/-_.~%"),
+            quote(partes.path or "/", safe="/-_~%"),
             "",
             urlencode(params_limpios, doseq=True),
             ""
@@ -320,6 +320,7 @@ def limpiar_titulo_para_busqueda(titulo):
     limpio = html.unescape(titulo or "")
     limpio = re.sub(r"^\s*\d+\s*°\s*[-–—:]?\s*", "", limpio)
     limpio = re.sub(r"(?i)mercado\s*libre\s*:?", "", limpio)
+    limpio = re.sub(r"(?i)\b(?:pago|tarjeta|promo|bonificaci[oó]n)\s+[a-z0-9]+\s*[\]\)]*$", "", limpio)
     limpio = re.sub(r"\$\s?[\d,]+(?:\.\d{1,2})?", "", limpio)
     limpio = re.sub(r"\b\d{1,2}\s?%\s?(?:off|descuento|dto)\b", "", limpio, flags=re.IGNORECASE)
     limpio = re.sub(r"(?i)\b(envío gratis|envio gratis|full|msi|meses sin intereses)\b", "", limpio)
@@ -333,11 +334,12 @@ def limpiar_titulo_simple(titulo):
     limpio = INVISIBLES.sub("", limpio.replace("\u00a0", " "))
     limpio = re.sub(r"^\s*\d+\s*°\s*[-–—:]?\s*", "", limpio)
     limpio = re.sub(r"(?i)^mercado\s*libre\s*:?\s*", "", limpio)
-    limpio = re.sub(r"\s*\[|\]\s*Mercado\s*Libre.*$", "", limpio, flags=re.IGNORECASE)
+    limpio = re.sub(r"\s*[\[\|]\s*Mercado\s*Libre.*$", "", limpio, flags=re.IGNORECASE)
+    limpio = re.sub(r"(?i)\b(?:pago|tarjeta)\s+[a-z0-9áéíóúñ]+\s*[\]\)]*$", "", limpio)
     limpio = re.sub(r"\$\s?[\d,]+(?:\.\d{1,2})?", " ", limpio)
     limpio = re.sub(r"\b\d{1,2}\s?%\s?(?:off|de descuento|descuento|dto)\b", " ", limpio, flags=re.IGNORECASE)
-    limpio = re.sub(r"\s+[-–|:,]\s*$", "", re.sub(r"\s+", " ", limpio).strip())
-    return limpio.strip(" -–|:,") or "Oferta disponible"
+    limpio = re.sub(r"\s*[-–|:,/]+\s*$", "", re.sub(r"\s+", " ", limpio).strip())
+    return limpio.strip(" -–|:,[]()") or "Oferta disponible"
 
 
 def _ajustar_cantidad_contradictoria(titulo: str, url: str) -> str:
@@ -350,6 +352,20 @@ def _ajustar_cantidad_contradictoria(titulo: str, url: str) -> str:
             limpio,
         )
     return re.sub(r"\s+", " ", limpio).strip()
+
+
+def _oferta_tiene_desajuste_cupon_url(titulo: str, url: str) -> bool:
+    tit_bajo = (titulo or "").lower()
+    if not re.search(r"\b(?:cup[oó]n|bonificaci[oó]n|meses\s+sin\s+intereses|msi)\b", tit_bajo):
+        return False
+    palabras_tit = {
+        p for p in re.findall(r"[a-z0-9áéíóúñ]{4,}", tit_bajo)
+        if p not in {"cupon", "cupón", "bonificacion", "bonificación", "descuento", "bbva", "hsbc", "banorte", "nu", "mercado", "libre", "pago", "tarjeta"}
+    }
+    if not palabras_tit:
+        return True
+    slug_url = (urlparse(url or "").path or "").lower().replace("-", " ")
+    return not any(p in slug_url for p in palabras_tit)
 
 
 def formatear_precio_mxn(valor):
@@ -575,6 +591,10 @@ def enriquecer_oferta_con_ml(oferta: dict) -> dict:
 def blindar_datos_oferta(oferta: dict) -> dict:
     precio_rss = _a_pesos(oferta.get("precio"))
     descuento_rss = oferta.get("descuento") or ""
+
+    if _oferta_tiene_desajuste_cupon_url(oferta.get("titulo") or "", oferta.get("url") or ""):
+        oferta["descartar"] = "el título de cupón/promo no coincide con la ruta del producto"
+        return oferta
 
     oferta["titulo"] = _ajustar_cantidad_contradictoria(
         oferta.get("titulo") or "",
