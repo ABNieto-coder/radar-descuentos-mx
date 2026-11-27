@@ -19,6 +19,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 IG_API_VERSION = "v27.0"
 CANAL_TELEGRAM = "@RadarDescuentosMX247"
+URL_TELEGRAM = "https://t.me/RadarDescuentosMX247"
 FPS = 30
 ANCHO, ALTO = 1080, 1920
 ARCHIVO_LOG_REELS = "reels_log.csv"
@@ -162,7 +163,7 @@ def limpiar_titulo_visual(titulo: str) -> str:
     limpio = _limpiar_basico(titulo)
     limpio = re.sub(r"^\s*\d+\s*°\s*[-:]?\s*", "", limpio)
     limpio = re.sub(r"(?i)^mercado\s*libre\s*:?\s*", "", limpio)
-    limpio = re.sub(r"\s*\[|\]\s*Mercado\s*Libre.*$", "", limpio, flags=re.IGNORECASE)
+    limpio = re.sub(r"\s*[\[\|]\s*Mercado\s*Libre.*$", "", limpio, flags=re.IGNORECASE)
     limpio = RUIDO_PROMO_TITULO.sub(" ", limpio)
     limpio = _quitar_palabra_prohibida(limpio)
     limpio = re.sub(r"\s*[-–|:,/]+\s*$", "", limpio)
@@ -340,7 +341,7 @@ def limpiar_texto_para_voz(texto: str) -> str:
     limpio = limpio.replace("$", " pesos ")
     limpio = limpio.replace("%", " por ciento ")
     limpio = re.sub(r"[^\w\sáéíóúüñÁÉÍÓÚÜÑ.,!?-]", " ", limpio)
-    limpio = re.sub(r"[*_\#~`\"\u201c\u201d\u2018\u2019\[\]<>|]+", " ", limpio)
+    limpio = re.sub(r"[*_\\#~`\"\u201c\u201d\u2018\u2019\[\]<>|]+", " ", limpio)
     limpio = re.sub(r"\s+([.,!?])", r"\1", limpio)
     limpio = re.sub(r"\s+", " ", limpio).strip()
     return limpio
@@ -828,8 +829,9 @@ def _escena_cierre(d: dict, prod_img, ruta: str):
 
     f_nota = cargar_fuente(FONT_REG_PATHS, 30)
     draw.text((CENTRO_X, 1265), "Precio y disponibilidad pueden cambiar", fill=(148, 163, 184), font=f_nota, anchor="mm")
-    f_tg = _fuente_ajustada(draw, f"Más ofertas en Telegram {CANAL_TELEGRAM}", FONT_BOLD_PATHS, ANCHO_UTIL, 34, 24)
-    draw.text((CENTRO_X, 1345), f"Más ofertas en Telegram {CANAL_TELEGRAM}", fill=(226, 232, 240), font=f_tg, anchor="mm")
+    texto_tg = "Canal de Telegram: t.me/RadarDescuentosMX247"
+    f_tg = _fuente_ajustada(draw, texto_tg, FONT_BOLD_PATHS, ANCHO_UTIL, 34, 24)
+    draw.text((CENTRO_X, 1345), texto_tg, fill=(226, 232, 240), font=f_tg, anchor="mm")
     canvas.save(ruta, format="PNG")
 
 
@@ -1020,7 +1022,7 @@ def armar_caption_reel(oferta: dict, d: dict = None) -> str:
         segunda,
         "",
         "Enlace en la bio.",
-        f"Más ofertas en Telegram: {CANAL_TELEGRAM}",
+        f"Más ofertas en Telegram: {URL_TELEGRAM}",
         "Enlace de afiliado. Precios y disponibilidad sujetos a cambios.",
         "",
         " ".join(hashtags),
