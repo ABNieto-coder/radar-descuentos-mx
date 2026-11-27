@@ -160,6 +160,13 @@ RUIDO_PROMO_TITULO = re.compile(
 )
 
 
+def _balancear_parentesis(texto: str) -> str:
+    s = texto or ""
+    if s.count("(") > s.count(")"):
+        s = re.sub(r"\s*\([^()]*$", "", s).strip()
+    return s
+
+
 def _quitar_conectores_finales(palabras):
     palabras = list(palabras)
     while len(palabras) > 2 and palabras[-1].lower().strip(",.;:") in CONECTORES_FINALES:
@@ -196,6 +203,7 @@ def limpiar_titulo_visual(titulo: str) -> str:
     limpio = _quitar_palabra_prohibida(limpio)
     limpio = re.sub(r"\s*[-–|:,/\]\)]+\s*$", "", limpio)
     limpio = re.sub(r"^\s*[-–|:,/\[\(]+\s*", "", limpio)
+    limpio = _balancear_parentesis(limpio)
     limpio = re.sub(r"\s+", " ", limpio).strip()
     limpio = _deduplicar_palabras_consecutivas(limpio)
     return limpio or "Selección destacada"
