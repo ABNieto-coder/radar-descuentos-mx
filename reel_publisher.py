@@ -254,15 +254,14 @@ def obtener_imagen_desde_api_ml(mlm_id: str) -> str:
 
 def descargar_imagen_producto(oferta: dict):
     candidatas = []
-    if (oferta.get("imagen_fuente") or "").lower() != "rss":
-        img_raw = normalizar_imagen_ml(oferta.get("imagen", ""))
-        if img_raw:
-            candidatas.append(img_raw)
-
     mlm_id = extraer_mlm_desde_oferta(oferta)
     img_api = obtener_imagen_desde_api_ml(mlm_id)
-    if img_api and img_api not in candidatas:
+    if img_api:
         candidatas.append(img_api)
+
+    img_raw = normalizar_imagen_ml(oferta.get("imagen", ""))
+    if img_raw and img_raw not in candidatas:
+        candidatas.append(img_raw)
 
     for url in candidatas:
         try:
@@ -696,8 +695,9 @@ def _revisar_antes_de_publicar(
         f"- Texto exacto que leerá la voz TTS: {voz}\n"
         f"- Foto real descargada: {'si' if tiene_imagen else 'no'}\n"
         f"- Caption:\n{caption}\n\n"
-        "Rechaza (aprobar: false) si detectas datos contradictorios, palabras mal expandidas para voz, "
-        "texto ilegible/cortado en las imágenes o una oferta incoherente.\n"
+        "Rechaza (aprobar: false) solo si hay datos contradictorios, palabras mal expandidas para voz "
+        "(por ejemplo '2K' leído como Kelvin), texto cortado/ilegible o un error grave. "
+        "No rechaces por usar la tarjeta de respaldo cuando no hubo foto descargable.\n"
         'Responde solo JSON: {"aprobar": true/false, "motivo": "breve"}'
     )
     revision = _llamar_gemini_json(prompt, api_key, rutas_imagenes=rutas_escenas)
