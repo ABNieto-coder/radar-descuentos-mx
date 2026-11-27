@@ -10,7 +10,11 @@ from urllib.parse import urlparse, parse_qs, urlencode, urlunparse, unquote, quo
 
 import requests
 
-from reel_publisher import publicar_reel_en_instagram, contar_reels_por_nicho
+from reel_publisher import (
+    publicar_reel_en_instagram,
+    contar_reels_por_nicho,
+    responder_comentarios_pendientes,
+)
 
 TOKEN = os.environ.get("TELEGRAM_TOKEN", "").strip()
 CANAL = "@RadarDescuentosMX247"
@@ -1087,9 +1091,11 @@ def main():
         if publicar_reel_en_instagram(oferta):
             ig_enviados += 1
 
+    respuestas_ig = responder_comentarios_pendientes()
+
     print(
         f"Ejecución terminada. Telegram: {len(publicadas_sesion)} (Listados: {listados}) | "
-        f"Instagram Reels: {ig_enviados}"
+        f"Instagram Reels: {ig_enviados} | Respuestas comentarios: {respuestas_ig}"
     )
 
 
