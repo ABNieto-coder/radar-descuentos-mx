@@ -91,7 +91,7 @@ limpio = rp._quitar_palabra_prohibida(sucio).lower()
 revisar(palabra_a not in limpio and f" {palabra_b} " not in f" {limpio} ", "las palabras prohibidas deben sustituirse")
 guion = rp.construir_guion(d, rp._candidatos_plantilla(d)[0])
 revisar("cura" + "dur" not in guion["voz"].lower(), "el guion no debe contener palabras prohibidas")
-revisar("primer comentario" in guion["voz"].lower() and "bio" not in guion["voz"].lower(), "el guion debe apuntar al primer comentario y no a la bio")
+revisar("dm" in guion["voz"].lower() and "bio" not in guion["voz"].lower(), "el guion debe pedir comentar DM y no mencionar la bio")
 
 caption = rp.armar_caption_reel(oferta, d)
 revisar(caption.count("#") <= 5, "el caption no debe pasar de 5 hashtags")
@@ -101,9 +101,13 @@ revisar("\u2014" not in caption, "el caption no debe llevar guiones largos")
 revisar("https://t.me/RadarDescuentosMX247" in caption, "el caption debe incluir el vínculo directo de Telegram")
 revisar("@RadarDescuentosMX247" not in caption, "el caption no debe usar arroba para Telegram en Instagram")
 
-comentario_prod = rp.armar_comentario_producto(oferta)
-revisar(comentario_prod.startswith("https://www.mercadolibre.com.mx/"), "el primer comentario debe ser la URL directa del producto en Mercado Libre")
-revisar("matt_word=charlysource" in comentario_prod and "matt_tool=29165755" in comentario_prod, "el primer comentario debe conservar los parámetros de afiliado")
+revisar(rp._comentario_pide_dm("DM"), "debe detectar palabra clave DM")
+revisar(rp._comentario_pide_dm("link por favor"), "debe detectar palabra clave link")
+revisar(not rp._comentario_pide_dm("Qué buena oferta"), "un comentario general no debe disparar DM automático sin pedir enlace")
+
+dm_msg = rp.armar_mensaje_dm_producto(oferta)
+revisar("https://www.mercadolibre.com.mx/" in dm_msg, "el DM debe incluir la URL directa del producto")
+revisar("matt_word=charlysource" in dm_msg and "matt_tool=29165755" in dm_msg, "el DM debe conservar los parámetros de afiliado")
 
 revisar(not rp._comentario_es_seguro_para_analizar("Visita https://spam.com gratis", "usuario1"), "debe filtrar comentarios con enlaces")
 revisar(not rp._comentario_es_seguro_para_analizar("Hola", "radardescuentos247"), "debe ignorar comentarios de la propia cuenta")
@@ -116,9 +120,8 @@ revisar(
     "debe neutralizar etiquetas de cierre inyectadas dentro del comentario",
 )
 
-url_val = "https://www.mercadolibre.com.mx/audifonos-xiaomi/p/MLM12345678?matt_word=charlysource&matt_tool=29165755"
-revisar(rp._validar_respuesta_comentario(f"Enlace directo: {url_val}", url_val) != "", "debe aceptar la URL exacta del producto en la respuesta")
-revisar(rp._validar_respuesta_comentario("Visita https://otro-sitio.com", url_val) == "", "debe rechazar URLs distintas a la verificada")
+revisar(rp._validar_respuesta_comentario("Comenta DM y te lo mando por mensaje privado.") != "", "debe aceptar respuesta sin enlaces externos")
+revisar(rp._validar_respuesta_comentario("Visita https://otro-sitio.com") == "", "debe rechazar URLs en respuestas públicas")
 
 if fallos:
     print(f"\n{len(fallos)} prueba(s) fallaron.")
