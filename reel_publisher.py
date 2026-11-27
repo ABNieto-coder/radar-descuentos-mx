@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import csv
 import glob
 import html
@@ -23,7 +24,15 @@ URL_TELEGRAM = "https://t.me/RadarDescuentosMX247"
 FPS = 30
 ANCHO, ALTO = 1080, 1920
 ARCHIVO_LOG_REELS = "reels_log.csv"
-GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
+MODELOS_PREFERIDOS = [
+    os.getenv("GEMINI_MODEL", "").strip(),
+    "gemini-3.5-flash-lite",
+    "gemini-3.8-flash",
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+]
+_MODELOS_ACTIVOS_CACHE = None
 
 ZONA_X1, ZONA_X2 = 130, 950
 ZONA_Y1, ZONA_Y2 = 250, 1430
@@ -126,7 +135,7 @@ RUIDO_PROMO_TITULO = re.compile(
     r"(?i)(?:"
     r"\$\s?[\d,]+(?:\.\d{1,2})?"
     r"|\b\d{1,3}\s?%\s?(?:off|de descuento|descuento|dto)\b"
-    r"|\b(?:env[ií]o\s+gratis|full|msi|meses\s+sin\s+intereses|cup[oó]n\s+aplicado|con\s+cup[oó]n)\b"
+    r"|\b(?:env[ií]o\s+gratis|full|msi|meses\s+sin\s+intereses|cup[oó]n\s+aplicado|con\s+cup[oó]n|pago\s+[a-z0-9]+)\b"
     r"|\b(?:color|modelo|talla|tama[ñn]o)\s*:\s*[^|,/]+"
     r")"
 )
@@ -166,8 +175,8 @@ def limpiar_titulo_visual(titulo: str) -> str:
     limpio = re.sub(r"\s*[\[\|]\s*Mercado\s*Libre.*$", "", limpio, flags=re.IGNORECASE)
     limpio = RUIDO_PROMO_TITULO.sub(" ", limpio)
     limpio = _quitar_palabra_prohibida(limpio)
-    limpio = re.sub(r"\s*[-–|:,/]+\s*$", "", limpio)
-    limpio = re.sub(r"^\s*[-–|:,/]+\s*", "", limpio)
+    limpio = re.sub(r"\s*[-–|:,/\]\)]+\s*$", "", limpio)
+    limpio = re.sub(r"^\s*[-–|:,/\[\(]+\s*", "", limpio)
     limpio = re.sub(r"\s+", " ", limpio).strip()
     limpio = _deduplicar_palabras_consecutivas(limpio)
     return limpio or "Selección destacada"
@@ -178,8 +187,8 @@ def _nombre_corto(titulo: str, max_palabras: int = 4, max_chars: int = 34) -> st
     sin_ruido = RUIDO_PROMO_TITULO.sub(" ", sin_parentesis)
     palabras = re.sub(r"\s+", " ", sin_ruido).strip().split()
     palabras = _deduplicar_palabras_consecutivas(" ".join(palabras)).split()
-    corto = " ".join(_quitar_conectores_finales(palabras[:max_palabras])).strip(" ,.;:-/")
-    corto = _recortar_en_palabra(corto, max_chars).strip(" ,.;:-/")
+    corto = " ".join(_quitar_conectores_finales(palabras[:max_palabras])).strip(" ,.;:-/[]()")
+    corto = _recortar_en_palabra(corto, max_chars).strip(" ,.;:-/[]()")
     return corto or (titulo or "este producto")
 
 
@@ -303,6 +312,8 @@ ABREVIACIONES_VOZ = [
     (re.compile(r"(?i)\b(\d+)\s*mb\b"), r"\1 megabytes"),
     (re.compile(r"(?i)\b(\d+)\s*mah\b"), r"\1 miliamperios hora"),
     (re.compile(r"(?i)\b(\d+)\s*hz\b"), r"\1 hercios"),
+    (re.compile(r"(?i)\b2k\b"), "dos ka"),
+    (re.compile(r"(?i)\b4k\b"), "cuatro ka"),
     (re.compile(r"(?i)\b(\d+)\s*w\b"), r"\1 watts"),
     (re.compile(r"(?i)\b(\d+)\s*v\b"), r"\1 voltios"),
     (re.compile(r"(?i)\b(\d+)\s*c[aá]ps\.?\b"), r"\1 cápsulas"),
@@ -479,6 +490,91 @@ def _normalizar_candidato_gemini(item, d: dict, permitidos: set):
     return {"formula": f"Gemini: {formula}", "hablado": hablado, "pantalla": lineas}
 
 
+def _resolver_modelos_gemini(api_key: str) -> list:
+    global _MODELOS_ACTIVOS_CACHE
+    if _MODELOS_ACTIVOS_CACHE is not None:
+        return _MODELOS_ACTIVOS_CACHE
+
+    base = [m for m in MODELOS_PREFERIDOS if m]
+    try:
+        res = requests.get(
+            f"{GEMINI_BASE_URL}/models",
+            headers={"x-goog-api-key": api_key},
+            timeout=12,
+        )
+        if res.ok:
+            disponibles = []
+            for m in (res.json().get("models") or []):
+                if not isinstance(m, dict):
+                    continue
+                if "generateContent" not in (m.get("supportedGenerationMethods") or []):
+                    continue
+                nombre = (m.get("name") or "").replace("models/", "").strip()
+                if "flash" in nombre and "embedding" not in nombre and "image" not in nombre:
+                    disponibles.append(nombre)
+            ordenados = [m for m in base if m in disponibles]
+            for m in disponibles:
+                if m not in ordenados:
+                    ordenados.append(m)
+            if ordenados:
+                _MODELOS_ACTIVOS_CACHE = ordenados[:4]
+                print(f"[REEL] Modelos Gemini activos: {', '.join(_MODELOS_ACTIVOS_CACHE)}")
+                return _MODELOS_ACTIVOS_CACHE
+    except Exception as e:
+        print(f"[REEL] Aviso listando modelos Gemini: {type(e).__name__}")
+
+    _MODELOS_ACTIVOS_CACHE = base
+    return _MODELOS_ACTIVOS_CACHE
+
+
+def _llamar_gemini_json(prompt: str, api_key: str, rutas_imagenes: list = None):
+    modelos = _resolver_modelos_gemini(api_key)
+    partes_usuario = [{"text": prompt}]
+    for ruta_img in (rutas_imagenes or [])[:3]:
+        if ruta_img and os.path.exists(ruta_img):
+            try:
+                with Image.open(ruta_img) as im:
+                    im_chica = im.convert("RGB").resize((360, 640), Image.Resampling.BILINEAR)
+                    buf = BytesIO()
+                    im_chica.save(buf, format="JPEG", quality=72)
+                    b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+                    partes_usuario.append({"inline_data": {"mime_type": "image/jpeg", "data": b64}})
+            except Exception:
+                pass
+
+    for modelo in modelos:
+        url = f"{GEMINI_BASE_URL}/models/{modelo}:generateContent"
+        try:
+            res = requests.post(
+                url,
+                headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
+                json={
+                    "contents": [{"parts": partes_usuario}],
+                    "generationConfig": {
+                        "temperature": 0.6,
+                        "maxOutputTokens": 900,
+                        "responseMimeType": "application/json",
+                        "thinkingConfig": {"thinkingBudget": 0},
+                    },
+                },
+                timeout=25,
+            )
+            if res.status_code == 404:
+                print(f"[REEL] Aviso Gemini HTTP 404 en {modelo}; probando siguiente modelo.")
+                continue
+            if not res.ok:
+                print(f"[REEL] Aviso Gemini HTTP {res.status_code} en {modelo}")
+                return None
+            candidatos = res.json().get("candidates") or []
+            partes = (candidatos[0].get("content", {}).get("parts") or []) if candidatos else []
+            texto = (partes[0].get("text") or "").strip() if partes else ""
+            texto = re.sub(r"^```(?:json)?|```$", "", texto, flags=re.MULTILINE).strip()
+            return json.loads(texto)
+        except Exception as e:
+            print(f"[REEL] Aviso Gemini ({modelo}): {type(e).__name__}")
+    return None
+
+
 def _candidatos_gemini(d: dict) -> list:
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key:
@@ -514,41 +610,56 @@ def _candidatos_gemini(d: dict) -> list:
         'Responde solo con un arreglo JSON: [{"formula": "...", "hablado": "...", "pantalla": ["...", "..."]}]'
     )
 
-    try:
-        res = requests.post(
-            GEMINI_URL,
-            headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
-            json={
-                "contents": [{"parts": [{"text": prompt}]}],
-                "generationConfig": {
-                    "temperature": 0.9,
-                    "maxOutputTokens": 900,
-                    "responseMimeType": "application/json",
-                    "thinkingConfig": {"thinkingBudget": 0},
-                },
-            },
-            timeout=20,
-        )
-        if not res.ok:
-            print(f"[REEL] Aviso Gemini HTTP {res.status_code}")
-            return []
-        candidatos = res.json().get("candidates") or []
-        partes = (candidatos[0].get("content", {}).get("parts") or []) if candidatos else []
-        texto = (partes[0].get("text") or "").strip() if partes else ""
-        texto = re.sub(r"^```(?:json)?|```$", "", texto, flags=re.MULTILINE).strip()
-        data = json.loads(texto)
-        if isinstance(data, dict):
-            data = data.get("ganchos") or data.get("candidatos") or [data]
-        permitidos = _numeros_permitidos(d)
-        salida = []
-        for item in data[:5]:
-            cand = _normalizar_candidato_gemini(item, d, permitidos)
-            if cand:
-                salida.append(cand)
-        return salida
-    except Exception as e:
-        print(f"[REEL] Aviso Gemini (se usan solo plantillas): {type(e).__name__}")
+    data = _llamar_gemini_json(prompt, api_key)
+    if not data:
         return []
+    if isinstance(data, dict):
+        data = data.get("ganchos") or data.get("candidatos") or [data]
+    if not isinstance(data, list):
+        return []
+    permitidos = _numeros_permitidos(d)
+    salida = []
+    for item in data[:5]:
+        cand = _normalizar_candidato_gemini(item, d, permitidos)
+        if cand:
+            salida.append(cand)
+    return salida
+
+
+def _revisar_antes_de_publicar(
+    d: dict, gancho: dict, guion: dict, caption: str, tiene_imagen: bool, rutas_escenas: list = None
+) -> tuple:
+    voz = (guion or {}).get("voz") or ""
+    if not voz.strip():
+        return False, "guion de voz vacío"
+    if not _numeros_ok(voz, _numeros_permitidos(d)):
+        return False, "números no verificados en el guion"
+    if len(caption.split("\n")[0]) > 125:
+        return False, "primera línea del caption supera 125 caracteres"
+    if URL_TELEGRAM not in caption:
+        return False, "falta el vínculo de Telegram en el caption"
+
+    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    if not api_key:
+        return True, "aprobado por reglas locales"
+
+    prompt = (
+        "Eres el editor jefe de un canal de ofertas en México. Revisa este Reel (texto, guion de voz y las 3 escenas "
+        "adjuntas) antes de publicarlo en Instagram.\n"
+        f"- Producto: {d['titulo']}\n"
+        f"- Precio: {d['precio_txt'] or 'no especificado'}\n"
+        f"- Gancho: {gancho.get('hablado', '')}\n"
+        f"- Texto exacto que leerá la voz TTS: {voz}\n"
+        f"- Foto real descargada: {'si' if tiene_imagen else 'no'}\n"
+        f"- Caption:\n{caption}\n\n"
+        "Rechaza (aprobar: false) si detectas datos contradictorios, palabras mal expandidas para voz, "
+        "texto ilegible/cortado en las imágenes o una oferta incoherente.\n"
+        'Responde solo JSON: {"aprobar": true/false, "motivo": "breve"}'
+    )
+    revision = _llamar_gemini_json(prompt, api_key, rutas_imagenes=rutas_escenas)
+    if isinstance(revision, dict) and revision.get("aprobar") is False:
+        return False, str(revision.get("motivo") or "rechazado por revisor IA")
+    return True, "aprobado por IA"
 
 
 def puntuar_gancho(hablado: str, d: dict):
@@ -820,8 +931,8 @@ def _escena_cierre(d: dict, prod_img, ruta: str):
     canvas = _tarjeta_producto(canvas, prod_img, (ZONA_X1, 300, ZONA_X2, 860), d["titulo"])
     draw = ImageDraw.Draw(canvas)
 
-    f_cta = _fuente_ajustada(draw, "ENLACE EN LA BIO", FONT_BOLD_PATHS, ANCHO_UTIL - 80, 70, 40)
-    _pildora(draw, (ZONA_X1 + 20, 940, ZONA_X2 - 20, 1070), "ENLACE EN LA BIO", f_cta, (20, 28, 44), (0, 255, 65))
+    f_cta = _fuente_ajustada(draw, "LINK EN COMENTARIOS", FONT_BOLD_PATHS, ANCHO_UTIL - 80, 62, 36)
+    _pildora(draw, (ZONA_X1 + 20, 940, ZONA_X2 - 20, 1070), "LINK EN COMENTARIOS", f_cta, (20, 28, 44), (0, 255, 65))
 
     if d["precio_txt"]:
         f_precio = _fuente_ajustada(draw, d["precio_txt"], FONT_BOLD_PATHS, ANCHO_UTIL, 90, 44)
@@ -829,21 +940,22 @@ def _escena_cierre(d: dict, prod_img, ruta: str):
 
     f_nota = cargar_fuente(FONT_REG_PATHS, 30)
     draw.text((CENTRO_X, 1265), "Precio y disponibilidad pueden cambiar", fill=(148, 163, 184), font=f_nota, anchor="mm")
-    texto_tg = "Canal de Telegram: t.me/RadarDescuentosMX247"
+    texto_tg = "Telegram: t.me/RadarDescuentosMX247"
     f_tg = _fuente_ajustada(draw, texto_tg, FONT_BOLD_PATHS, ANCHO_UTIL, 34, 24)
     draw.text((CENTRO_X, 1345), texto_tg, fill=(226, 232, 240), font=f_tg, anchor="mm")
     canvas.save(ruta, format="PNG")
 
 
-def crear_escenas(d: dict, gancho: dict, oferta: dict, carpeta: str) -> list:
+def crear_escenas(d: dict, gancho: dict, oferta: dict, carpeta: str) -> tuple:
     prod_img = descargar_imagen_producto(oferta)
-    if prod_img is None:
+    tiene_imagen = prod_img is not None
+    if not tiene_imagen:
         print("[REEL] Fallback visual activado: sin foto real descargable.")
     rutas = [os.path.join(carpeta, f"escena{i}.png") for i in (1, 2, 3)]
     _escena_gancho(d, gancho, prod_img, rutas[0])
     _escena_producto(d, prod_img, rutas[1])
     _escena_cierre(d, prod_img, rutas[2])
-    return rutas
+    return rutas, tiene_imagen
 
 
 async def _sintetizar_voz(texto: str, ruta_salida: str, voz: str):
@@ -1021,7 +1133,7 @@ def armar_caption_reel(oferta: dict, d: dict = None) -> str:
         primera,
         segunda,
         "",
-        "Enlace en la bio.",
+        "Enlace en el primer comentario.",
         f"Más ofertas en Telegram: {URL_TELEGRAM}",
         "Enlace de afiliado. Precios y disponibilidad sujetos a cambios.",
         "",
@@ -1029,6 +1141,33 @@ def armar_caption_reel(oferta: dict, d: dict = None) -> str:
     ]
     caption = "\n".join(_quitar_palabra_prohibida(_limpiar_basico(l)) for l in lineas)
     return caption[:2200]
+
+
+def armar_comentario_telegram() -> str:
+    return URL_TELEGRAM
+
+
+def _publicar_primer_comentario_reel(media_id: str, access_token: str) -> bool:
+    if not media_id or not access_token:
+        return False
+    try:
+        res = requests.post(
+            f"https://graph.facebook.com/{IG_API_VERSION}/{media_id}/comments",
+            data={
+                "message": armar_comentario_telegram(),
+                "access_token": access_token,
+            },
+            timeout=20,
+        )
+        data = res.json() if res.content else {}
+        if isinstance(data, dict) and data.get("id"):
+            print(f"[REEL] Primer comentario publicado con enlace de Telegram (ID: {data['id']}).")
+            return True
+        err = data.get("error", {}) if isinstance(data, dict) else {}
+        print(f"[REEL] Aviso publicando comentario: code={err.get('code')} msg={err.get('message', '')}")
+    except Exception as e:
+        print(f"[REEL] Aviso excepción en comentario: {type(e).__name__}")
+    return False
 
 
 def registrar_reel_log(oferta: dict, d: dict, gancho: dict, media_id: str):
@@ -1155,14 +1294,17 @@ def _subir_y_publicar_reel(ig_user_id: str, access_token: str, ruta_mp4: str, ca
         print(f"[REEL] Error publicando Reel: code={err.get('code')} msg={err.get('message', '')}")
         return ""
 
-    print(f"[REEL] ¡Reel publicado con éxito! ID: {data_pub['id']}")
-    return str(data_pub["id"])
+    media_id = str(data_pub["id"])
+    print(f"[REEL] ¡Reel publicado con éxito! ID: {media_id}")
+    _publicar_primer_comentario_reel(media_id, access_token)
+    return media_id
 
 
 def preparar_reel(oferta: dict, carpeta: str, ruta_mp4: str = "") -> dict:
     d = _datos_oferta(oferta)
     gancho = elegir_gancho(d)
     guion = construir_guion(d, gancho)
+    caption = armar_caption_reel(oferta, d)
     print(f"[REEL] Gancho ({gancho['formula']}, {gancho['puntaje']}): {gancho['hablado']}")
     print(f"[REEL] Guion: {guion['voz']}")
 
@@ -1171,9 +1313,16 @@ def preparar_reel(oferta: dict, carpeta: str, ruta_mp4: str = "") -> dict:
     ruta_mp4 = ruta_mp4 or os.path.join(carpeta, "reel.mp4")
 
     try:
-        rutas_escenas = crear_escenas(d, gancho, oferta, carpeta)
+        rutas_escenas, tiene_imagen = crear_escenas(d, gancho, oferta, carpeta)
     except Exception as e:
         print(f"[REEL] Error creando escenas: {type(e).__name__}")
+        return None
+
+    aprobado, motivo_rev = _revisar_antes_de_publicar(
+        d, gancho, guion, caption, tiene_imagen, rutas_escenas=rutas_escenas
+    )
+    print(f"[REEL] Revisión previa: {motivo_rev}")
+    if not aprobado:
         return None
 
     try:
@@ -1191,7 +1340,7 @@ def preparar_reel(oferta: dict, carpeta: str, ruta_mp4: str = "") -> dict:
 
     return {
         "ruta_mp4": ruta_mp4,
-        "caption": armar_caption_reel(oferta, d),
+        "caption": caption,
         "datos": d,
         "gancho": gancho,
     }
@@ -1224,13 +1373,13 @@ def publicar_reel_en_instagram(oferta: dict) -> bool:
 
 if __name__ == "__main__":
     demo = {
-        "titulo": "Audífonos Inalámbricos Bluetooth Xiaomi Redmi Buds 6 Play",
-        "precio": "$399",
-        "precio_anterior": "$599",
-        "descuento": "33% OFF",
+        "titulo": "Xiaomi Monitor 27\" 2K IPS, 200Hz 1ms Modelo G27Qi 2026Pago HSBC]",
+        "precio": "$2,712",
+        "precio_anterior": "$3,190",
+        "descuento": "15% OFF",
         "nicho": "tecnologia",
         "imagen": "",
-        "mlm_id": "",
+        "mlm_id": "MLM77715910",
     }
     with tempfile.TemporaryDirectory() as tmp:
         resultado = preparar_reel(demo, tmp, "prueba_reel.mp4")
