@@ -24,9 +24,10 @@ jobs:
           python-version: "3.11"
           cache: pip
 
-      - name: Instalar dependencias ligeras
+      - name: Instalar dependencias de Python
         run: |
-          pip install requests Pillow
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
       - name: Revisar sintaxis
         run: |
@@ -59,4 +60,3 @@ jobs:
             echo "No se pudo subir comentarios_respondidos.txt tras 3 intentos."
             exit 1
           fi
-
