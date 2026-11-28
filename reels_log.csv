@@ -1,20 +1,20 @@
-fecha_utc,nicho,mlm_id,formula,puntaje,gancho,precio,descuento,media_id
-2026-11-27 04:12,general,MLM73596558,Dirigido,95.0,"Si buscas Espejo Luz Led Touch, ahora está en $209.",$209,,18047998343832996
-2026-11-27 05:01,cuidado_personal,MLM2103974228,Dirigido,100.0,"Si buscas 2pzas. Protector solar Eucerin, ahora está en $375.",$375,,18146813704717318
-2026-11-27 06:50,cuidado_personal,MLM2103974228,Dirigido,85.0,2pzas. Protector solar Eucerin baja a $375.,$375,,18038387393665535
-2026-11-27 07:54,tecnologia,MLM55830018,Dirigido,85.0,"LAPTOP ASUS VIVO 15 baja a $8,848.","$8,848",50%,18386939290237680
-2026-11-27 07:55,tecnologia,MLM61641517,Dirigido,85.0,"LAPTOP SNAPDRAGON OLED baja a $12,999.","$12,999",,18084694556381234
-2026-11-27 15:02,general,MLM39336912,Dirigido,85.0,"Colchon Restonic Matrimonial Moon baja a $1,950.","$1,950",,17997616587098990
-2026-11-27 20:46,tecnologia,MLM77715910,Dirigido,85.0,"Xiaomi Monitor 27"" 2K baja a $2,712.","$2,712",15%,18493033567117991
-2026-11-27 20:47,cuidado_personal,MLM40732643,Dirigido,85.0,Kit Garnier Express Aclara baja a $294.,$294,55%,17931390177428297
-2026-11-27 21:02,general,MLM79476829,Dirigido,85.0,Sim Flash Con Llamadas baja a $86.,$86,,18651128029038760
-2026-11-27 21:03,general,MLM2113522263,Dirigido,85.0,Modern Sonic Collection Nintendo baja a $664.,$664,,17994417783076009
-2026-11-27 21:24,tecnologia,MLM77715910,Descuento,85.0,"15% menos en Xiaomi Monitor 27"" 2K.","$2,712",15%,18117035573180706
-2026-11-27 21:25,general,MLM3038848061,Dirigido,85.0,"Cupón del 20% baja a $6,000.","$6,000",20%,18190834153410956
-2026-11-27 21:52,tecnologia,MLM77715910,Descuento,85.0,"15% menos en Xiaomi Monitor 27"" 2K.","$2,712",15%,18027172049720023
-2026-11-27 21:54,tecnologia,MLM70510831,Dirigido,85.0,"Monitor Xiaomi A27qi 2026 baja a $2,588.","$2,588",,18191764123417803
-2026-11-27 22:02,general,MLM3038848061,Dirigido,85.0,Nike Aura Mochila Negra baja a $724.,$724,,18110776244302300
-2026-11-27 22:03,general,MLM27444074,Dirigido,85.0,Super Mario rpg baja a $539.,$539,,18120528476135339
+fecha_utc,nicho,mlm_id,formula,puntaje,gancho,precio,descuento,media_id,titulo,url
+2026-11-27 04:12,general,MLM73596558,Dirigido,95.0,"Si buscas Espejo Luz Led Touch, ahora está en $209.",$209,,18047998343832996,,
+2026-11-27 05:01,cuidado_personal,MLM2103974228,Dirigido,100.0,"Si buscas 2pzas. Protector solar Eucerin, ahora está en $375.",$375,,18146813704717318,,
+2026-11-27 06:50,cuidado_personal,MLM2103974228,Dirigido,85.0,2pzas. Protector solar Eucerin baja a $375.,$375,,18038387393665535,,
+2026-11-27 07:54,tecnologia,MLM55830018,Dirigido,85.0,"LAPTOP ASUS VIVO 15 baja a $8,848.","$8,848",50%,18386939290237680,,
+2026-11-27 07:55,tecnologia,MLM61641517,Dirigido,85.0,"LAPTOP SNAPDRAGON OLED baja a $12,999.","$12,999",,18084694556381234,,
+2026-11-27 15:02,general,MLM39336912,Dirigido,85.0,"Colchon Restonic Matrimonial Moon baja a $1,950.","$1,950",,17997616587098990,,
+2026-11-27 20:46,tecnologia,MLM77715910,Dirigido,85.0,"Xiaomi Monitor 27"" 2K baja a $2,712.","$2,712",15%,18493033567117991,,
+2026-11-27 20:47,cuidado_personal,MLM40732643,Dirigido,85.0,Kit Garnier Express Aclara baja a $294.,$294,55%,17931390177428297,,
+2026-11-27 21:02,general,MLM79476829,Dirigido,85.0,Sim Flash Con Llamadas baja a $86.,$86,,18651128029038760,,
+2026-11-27 21:03,general,MLM2113522263,Dirigido,85.0,Modern Sonic Collection Nintendo baja a $664.,$664,,17994417783076009,,
+2026-11-27 21:24,tecnologia,MLM77715910,Descuento,85.0,"15% menos en Xiaomi Monitor 27"" 2K.","$2,712",15%,18117035573180706,,
+2026-11-27 21:25,general,MLM3038848061,Dirigido,85.0,"Cupón del 20% baja a $6,000.","$6,000",20%,18190834153410956,,
+2026-11-27 21:52,tecnologia,MLM77715910,Descuento,85.0,"15% menos en Xiaomi Monitor 27"" 2K.","$2,712",15%,18027172049720023,,
+2026-11-27 21:54,tecnologia,MLM70510831,Dirigido,85.0,"Monitor Xiaomi A27qi 2026 baja a $2,588.","$2,588",,18191764123417803,,
+2026-11-27 22:02,general,MLM3038848061,Dirigido,85.0,Nike Aura Mochila Negra baja a $724.,$724,,18110776244302300,,
+2026-11-27 22:03,general,MLM27444074,Dirigido,85.0,Super Mario rpg baja a $539.,$539,,18120528476135339,,
 2026-11-27 22:14,tecnologia,MLM77715910,Dirigido,85.0,"Xiaomi Monitor 27"" 2K baja a $2,712.","$2,712",,18475841704191200,"Xiaomi Monitor 27"" 2K IPS, 200Hz 1ms Modelo G27Qi 2026",https://www.mercadolibre.com.mx/xiaomi-2k-gaming-monitor-g27qi-2026-negro/p/MLM77715910?matt_event_ts=1795817585968&matt_d2id=14d39c19-354b-4c18-b3a7-85fc2eef9389&matt_tracing_id=c93d6703-d78a-4a46-b424-afee9dc95281&matt_word=charlysource&matt_tool=29165755
 2026-11-27 22:15,tecnologia,MLM70510831,Dirigido,85.0,"Monitor Xiaomi A27qi 2026 baja a $2,588.","$2,588",,17919156816554017,Monitor Xiaomi A27qi 2026 27 Qhd 2k Panel Ips 120hz,https://www.mercadolibre.com.mx/monitor-xiaomi-a27qi-2026-27-qhd-2k-panel-ips-120hz/p/MLM70510831?matt_event_ts=1795817587480&matt_d2id=ae6e3a5c-db19-4032-af47-49dc8d22a1a9&matt_tracing_id=b9219b7d-0dd9-4da7-92a2-57698f020500&matt_word=charlysource&matt_tool=29165755
 2026-11-27 22:54,tecnologia,MLM36312589,Dirigido,85.0,Control Gamer Acer Nitro baja a $299.,$299,,17969269734215356,Control Gamer Acer Nitro Para Pc Compatible Windows/android Negro,https://www.mercadolibre.com.mx/control-gamer-acer-nitro-para-pc-compatible-windowsandroid-negro/p/MLM36312589?matt_event_ts=1795819973842&matt_d2id=8b7ab495-b571-455c-992d-a35a474813c2&matt_tracing_id=fed00605-2701-49ea-97b3-1514ee0c7985&matt_word=charlysource&matt_tool=29165755
@@ -23,3 +23,5 @@ fecha_utc,nicho,mlm_id,formula,puntaje,gancho,precio,descuento,media_id
 2026-11-27 23:40,general,MLM77817636,Dirigido,85.0,"Celular Cubot a50 nuevo baja a $2,472.","$2,472",,18139447102679634,Celular Cubot a50 nuevo en 3 colores,https://www.mercadolibre.com.mx/cubot-a50-dual-sim-128-gb-azul-6-gb-ram-ampliable-hasta-16-gb-658-pulgadas-nfc-android-16/p/MLM77817636?pdp_filters=item_id%3AMLM6072587712&matt_event_ts=1795822690629&matt_d2id=fe96934c-01ca-4d96-adb0-baf96edb8096&matt_tracing_id=a69cf3a8-baaa-4b1a-b092-107d25224cb5&matt_word=charlysource&matt_tool=29165755
 2026-11-27 23:54,tecnologia,MLM45633516,Dirigido,85.0,Mochila transparente baja a $298.,$298,,18103645241090611,Mochila transparente,https://www.mercadolibre.com.mx/mochila-para-laptop-mochila-transparente-antirrobo-para-mujer-mochila-de-pvc-para-estadio-mochila-escolar-negro/p/MLM45633516?matt_event_ts=1795823613046&matt_d2id=1daadaea-7794-4d15-a3ab-d16c581eb5cc&matt_tracing_id=03a3e638-9841-4c9f-a4cf-1e291c79181d&matt_word=charlysource&matt_tool=29165755
 2026-11-27 23:55,tecnologia,MLM77715910,Dirigido,85.0,"Xiaomi Monitor 27"" 2K baja a $2,712.","$2,712",,18061402241803132,"Xiaomi Monitor 27"" 2K IPS, 200Hz 1ms Modelo G27Qi 2026",https://www.mercadolibre.com.mx/xiaomi-2k-gaming-monitor-g27qi-2026-negro/p/MLM77715910?matt_event_ts=1795823617752&matt_d2id=2ffaa909-8920-4f2c-a532-170144364796&matt_tracing_id=aa8a1368-eed5-42f9-9a49-3f34b72bc4e9&matt_word=charlysource&matt_tool=29165755
+2026-11-28 01:31,tecnologia,MLM54534508,Dirigido,85.0,"Pantalla 65"" QM6K Mini baja a $7,730.","$7,730",,18104332409069173,"Pantalla 65"" QM6K Mini Led 144hz pagando con TDC BANAMEX",https://www.mercadolibre.com.mx/pantalla-65-2025-tcl-qd-mini-led-4k-hdr-google-tv-qm6k/p/MLM54534508?matt_event_ts=1795829438432&matt_d2id=3aeb209a-d1aa-479a-be62-46adfaf7be65&matt_tracing_id=9b9cc4e2-a804-42e0-a692-8338d90526ec&matt_word=charlysource&matt_tool=29165755
+2026-11-28 01:32,tecnologia,MLM45425994,Dirigido,85.0,"Pantalla TCL 65 pulgadas baja a $5,850.","$5,850",,18022373777954838,Pantalla TCL 65 pulgadas QLED 65Q5K con banamex,https://www.mercadolibre.com.mx/smart-tv-pantalla-65-65q5k-tcl-google-qled-4k-voice-control/p/MLM45425994?matt_event_ts=1795829440313&matt_d2id=66f18182-0dd6-4622-a591-5d20bc375f63&matt_tracing_id=5d51f08e-6d47-45ab-a158-1c0cd2cf2590&matt_word=charlysource&matt_tool=29165755
