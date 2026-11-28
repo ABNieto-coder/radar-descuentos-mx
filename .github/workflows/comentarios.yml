@@ -1,1 +1,62 @@
+name: Comentarios y DM Instagram
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: radar-descuentos-mx-comentarios
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  responder-comentarios:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Instalar dependencias ligeras
+        run: |
+          pip install requests Pillow
+
+      - name: Revisar sintaxis
+        run: |
+          python -m py_compile bot.py reel_publisher.py
+
+      - name: Responder comentarios y enviar DM
+        env:
+          PYTHONUNBUFFERED: "1"
+          IG_USER_ID: ${{ secrets.IG_USER_ID }}
+          IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          python bot.py --solo-comentarios
+
+      - name: Guardar comentarios respondidos
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if [ -f comentarios_respondidos.txt ]; then git add comentarios_respondidos.txt; fi
+          if ! git diff --staged --quiet; then
+            git commit -m "Actualiza comentarios respondidos"
+            for intento in 1 2 3; do
+              if git pull --rebase origin main && git push origin main; then
+                exit 0
+              fi
+              git rebase --abort 2>/dev/null || true
+              sleep 2
+            done
+            echo "No se pudo subir comentarios_respondidos.txt tras 3 intentos."
+            exit 1
+          fi
 
