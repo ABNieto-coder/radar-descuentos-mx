@@ -2,6 +2,7 @@ import html
 import json
 import os
 import re
+import sys
 import time
 import unicodedata
 import xml.etree.ElementTree as ET
@@ -1037,7 +1038,12 @@ def elegir_para_reel(publicadas, maximo):
     return elegidas
 
 
-def main():
+def main(solo_comentarios: bool = False):
+    if solo_comentarios:
+        respuestas_ig = responder_comentarios_pendientes()
+        print(f"Revisión rápida terminada. Respuestas comentarios: {respuestas_ig}")
+        return
+
     publicados = cargar_publicados()
     ofertas = buscar_ofertas_filtradas(publicados)
 
@@ -1100,4 +1106,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main(solo_comentarios="--solo-comentarios" in sys.argv[1:])
